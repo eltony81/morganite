@@ -1,20 +1,20 @@
-require "redis"
-require "json"
+require "morganite"
+require "./workers/my_worker"
 
-# End-to-end test orchestrator.
-# 1. Flushes Redis.
-# 2. Enqueues a batch of jobs.
-# 3. Polls the processed counter until it reaches the expected count or timeout.
 module E2E
   REDIS_URL      = ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
   QUEUE_NAME     = ENV.fetch("QUEUE_NAME", "demo")
   EXPECTED_COUNT = ENV.fetch("EXPECTED_COUNT", "100").to_i
   TIMEOUT        = ENV.fetch("TIMEOUT_SECONDS", "30").to_i
   COUNTER_KEY    = "morganite:e2e:processed"
-  QUEUE_KEY      = "queue:#{QUEUE_NAME}"
+
+  Morganite.config = Morganite::Configuration.new(
+    redis_url: REDIS_URL,
+    queue: QUEUE_NAME,
+  )
 
   def self.redis
-    Redis::Client.new(URI.parse(REDIS_URL))
+    Morganite::RedisConnection.new_client
   end
 
   def self.run
@@ -25,7 +25,7 @@ module E2E
 
     puts "[e2e] Enqueuing #{EXPECTED_COUNT} jobs..."
     EXPECTED_COUNT.times do |i|
-      redis.lpush(QUEUE_KEY, {id: i + 1}.to_json)
+      Morganite::Client.enqueue("MyWorker", [JSON.parse({id: i + 1}.to_json)], QUEUE_NAME)
     end
 
     puts "[e2e] Waiting for workers to process all jobs (timeout #{TIMEOUT}s)..."

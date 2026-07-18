@@ -16,6 +16,8 @@ end
 
 Spec.before_each do
   flush_redis
+  Morganite::ClientMiddleware.clear
+  Morganite::ServerMiddleware.clear
 end
 
 Spec.after_each do

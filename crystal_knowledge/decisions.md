@@ -112,6 +112,21 @@ Usare questo file per registrare decisioni tecniche non ovvie.
 - **Conseguenze**: l’API usa `Proc(Nil)` esplicita invece di blocchi catturati per evitare un bug del compilatore Crystal 1.20.2 con `&block : -> Nil` in combinazione con metodi astratti.
 - **Reversibilità**: alta – middleware e hook sono opzionali e non influenzano il flusso base.
 
+### 2026-07-18 – Unique jobs
+
+- **Contesto**: M7.1 richiede di evitare l'esecuzione/concorrenza di job duplicati basandosi su worker class + queue + args.
+- **Opzioni**: lock lato Redis con `SET NX EX`, lock in-memory, o chiave derivata solo dal payload.
+- **Decisione**:
+  - Creato `Morganite::UniqueJobs` con chiave `morganite:unique:<sha256(class|queue|args.to_json)>`.
+  - Tre strategie:
+    - `while_executing`: lock acquisito dal `Processor` prima dell'esecuzione e rilasciato in `ensure`.
+    - `until_executed`: lock acquisito dal `Client` in fase di enqueue; rilasciato dal `Processor` solo al successo, o in caso di dead/discard.
+    - `until_expired`: lock acquisito dal `Client` con TTL (`unique_for`, default 300s) e rilasciato automaticamente da Redis.
+  - Il `Client` restituisce `Job?`: `nil` quando il lock è già presente per `until_executed`/`until_expired`; `while_executing` permette l'enqueue e blocca solo l'esecuzione.
+  - Aggiunta macro `unique :strategia, ttl: N` nel modulo `Worker` per dichiarare la strategia a livello di worker.
+- **Conseguenze**: nessun job duplicato nelle combinazioni dichiarate; il lock è distribuito e sopravvive a più processi Morganite. `while_executing` usa un TTL per evitare lock fantasma in caso di crash del processo; `until_executed` invece usa un lock senza scadenza, persistente attraverso i retry.
+- **Reversibilità**: media – la logica è concentrata in `UniqueJobs`, `Client` e `Processor`, ma richiede un campo aggiuntivo su `Job`.
+
 ### 2026-07-18 – Logging, metriche e health check
 
 - **Contesto**: M6 richiede osservabilità per produzione.

@@ -16,7 +16,9 @@ module Morganite
         ::Morganite::Client.enqueue(
           self.name,
           args.to_a.map { |arg| JSON.parse(arg.to_json) },
-          default_queue
+          default_queue,
+          unique: unique_strategy,
+          unique_for: unique_for
         )
       end
 
@@ -25,7 +27,9 @@ module Morganite
           self.name,
           time,
           args.to_a.map { |arg| JSON.parse(arg.to_json) },
-          default_queue
+          default_queue,
+          unique: unique_strategy,
+          unique_for: unique_for
         )
       end
 
@@ -41,10 +45,28 @@ module Morganite
         # TODO: allow per-worker queue override (stored in class-level metadata)
         name
       end
+
+      def unique_strategy : String?
+        nil
+      end
+
+      def unique_for : Int32
+        300
+      end
     end
 
     macro cron(expression)
       ::Morganite::Cron.register({{@type.name.stringify}}, {{expression}})
+    end
+
+    macro unique(strategy, ttl = 300)
+      def self.unique_strategy : String?
+        {{strategy.id.stringify}}
+      end
+
+      def self.unique_for : Int32
+        {{ttl}}
+      end
     end
 
     abstract def perform(args : Array(JSON::Any))

@@ -243,9 +243,9 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M7.1 Unique jobs
 
-- [ ] Blocco basato su chiave (args + queue + class) con Redis `SET NX EX`
-- [ ] Strategie: while_executing, until_executed, until_expired
-- [ ] Unlock al termine o in caso di errore
+- [x] Blocco basato su chiave (args + queue + class) con Redis `SET NX EX`
+- [x] Strategie: while_executing, until_executed, until_expired
+- [x] Unlock al termine o in caso di errore
 
 ### M7.2 Batches (Bento-like)
 
@@ -264,7 +264,7 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M7.5 Test
 
-- [ ] Spec per unique jobs
+- [x] Spec per unique jobs
 - [ ] Spec per batches
 - [ ] Spec per rate limiting
 
@@ -301,7 +301,7 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M8.5 Test end-to-end
 
-- [ ] Suite di integrazione con Redis reale
+- [x] Suite di integrazione con Redis reale (docker-compose.e2e.yml)
 - [ ] Test di carico base (es. 10k job)
 - [ ] Benchmark vs Sidekiq (opzionale)
 

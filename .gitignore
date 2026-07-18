@@ -1,6 +1,7 @@
 .DS_Store
 /.shards/
 /lib/
+examples/demo_app/lib/
 /bin/
 !/bin/.gitkeep
 !/bin/morganite

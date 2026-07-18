@@ -1,48 +1,26 @@
-require "redis"
-require "json"
+require "morganite"
 require "./workers/*"
 
-# TODO: once Morganite APIs are ready, replace the manual Redis queue logic
-# with Morganite::Client and Morganite::Worker.
 module DemoApp
-  REDIS_URL   = ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
-  QUEUE_NAME  = ENV.fetch("QUEUE_NAME", "demo")
-  COUNTER_KEY = "morganite:e2e:processed"
-  QUEUE_KEY   = "queue:#{QUEUE_NAME}"
+  REDIS_URL  = ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
+  QUEUE_NAME = ENV.fetch("QUEUE_NAME", "demo")
 
-  def self.redis
-    Redis::Client.new(URI.parse(REDIS_URL))
-  end
+  Morganite.config = Morganite::Configuration.new(
+    redis_url: REDIS_URL,
+    queue: QUEUE_NAME,
+    concurrency: ENV.fetch("CONCURRENCY", "5").to_i,
+  )
 
   def self.enqueue(count : Int32)
-    redis = self.redis
     count.times do |i|
-      payload = {id: i + 1}.to_json
-      redis.lpush(QUEUE_KEY, payload)
+      Morganite::Client.enqueue("MyWorker", [JSON.parse({id: i + 1}.to_json)], QUEUE_NAME)
     end
-    puts "Enqueued #{count} jobs to #{QUEUE_KEY}"
+    puts "Enqueued #{count} jobs to #{QUEUE_NAME}"
   end
 
   def self.work
-    redis = self.redis
-    puts "Worker started, listening on #{QUEUE_KEY}"
-
-    loop do
-      begin
-        result = redis.brpop(QUEUE_KEY, timeout: 2)
-        break unless result
-
-        # result is an Array(Redis::Value) like ["queue:demo", "{\"id\":1}"]
-        payload = JSON.parse(result[1].as(String))
-        id = payload["id"].as_i
-
-        redis.incr(COUNTER_KEY)
-        puts "Processed job id=#{id}"
-      rescue ex : Socket::ConnectError | IO::Error
-        puts "Redis connection lost, shutting down worker: #{ex.message}"
-        break
-      end
-    end
+    Morganite.start
+    Morganite.wait
   end
 end
 
