@@ -10,3 +10,4 @@
 *.dwarf
 /morganite
 /morganite-web
+bin/morganite

@@ -54,35 +54,35 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M1.1 Modello dati job
 
-- [ ] Definire la struct/classe `Morganite::Job` con campi: `jid`, `class`, `args`, `queue`, `created_at`, `enqueued_at`, `retry`, `retry_count`, `error_message`, `error_backtrace`, `failed_at`, `retried_at`
-- [ ] Implementare serializzazione/deserializzazione JSON bidirezionale
-- [ ] Generatore di `jid` (SecureRandom/UUID)
+- [x] Definire la struct/classe `Morganite::Job` con campi: `jid`, `class`, `args`, `queue`, `created_at`, `enqueued_at`, `retry`, `retry_count`, `error_message`, `error_backtrace`, `failed_at`, `retried_at`
+- [x] Implementare serializzazione/deserializzazione JSON bidirezionale
+- [x] Generatore di `jid` (SecureRandom/UUID)
 
 ### M1.2 Producer (enqueue)
 
-- [ ] Implementare `Morganite::Client` per enqueue su una coda Redis list (`lpush` su `queue:<name>`)
-- [ ] Supportare `perform_async`, `perform_at`, `perform_in`
-- [ ] Implementare la coda scheduled come sorted set `morganite:scheduled` con score timestamp
+- [x] Implementare `Morganite::Client` per enqueue su una coda Redis list (`lpush` su `morganite:queue:<name>`)
+- [x] Supportare `perform_async`, `perform_at`, `perform_in`
+- [x] Implementare la coda scheduled come sorted set `morganite:scheduled` con score timestamp
 - [ ] Aggiungere transaction/pipeline per ridurre round-trip Redis
 
 ### M1.3 Consumer (fetch + execute)
 
-- [ ] Implementare fetch atomico da coda con `brpop` o Redis streams (valutare)
-- [ ] Supportare ` reliable fetch` con `rpoplpush` / `brpoplpush` verso una working list per evitare perdite
-- [ ] Implementare worker pool basato su fiber con concurrency configurabile
-- [ ] Eseguire il job invocando il worker registrato via `Morganite::Worker.included`
-- [ ] Gestire graceful shutdown (fermare fetch, terminare job in corso, chiudere connessioni)
+- [x] Implementare fetch atomico da coda con `brpop`
+- [ ] Supportare `reliable fetch` con `rpoplpush` / `brpoplpush` verso una working list per evitare perdite
+- [x] Implementare worker pool basato su fiber con concurrency configurabile
+- [x] Eseguire il job invocando il worker registrato via `Morganite::Worker.included`
+- [x] Gestire graceful shutdown base (fermare fetch al segnale)
 
 ### M1.4 Registrazione worker
 
-- [ ] Modulo `Morganite::Worker` con macro per definire `perform(args)`
-- [ ] Registry runtime dei worker (Hash nome -> classe)
+- [x] Modulo `Morganite::Worker` con macro per definire `perform(args)`
+- [x] Registry runtime dei worker (Hash nome -> factory proc)
 - [ ] Supporto per `sidekiq_options` equivalenti (`queue`, `retry`, `backtrace`, `dead`)
 
 ### M1.5 Test
 
-- [ ] Spec per enqueue/dequeue con Redis fittizio o container Redis
-- [ ] Spec per esecuzione worker
+- [x] Spec per enqueue/dequeue con Redis reale
+- [x] Spec per esecuzione worker
 - [ ] Spec per graceful shutdown
 
 ---

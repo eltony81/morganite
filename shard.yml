@@ -13,6 +13,10 @@ license: MIT
 
 crystal: 1.15.0
 
+targets:
+  morganite:
+    main: src/morganite/cli.cr
+
 dependencies:
   redis:
     github: jgaskins/redis
