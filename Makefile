@@ -13,7 +13,7 @@ fmt-check:
 	crystal tool format --check
 
 lint:
-	./bin/ameba
+	./lib/ameba/bin/ameba
 
 build:
 	crystal build src/morganite.cr -o bin/morganite --release

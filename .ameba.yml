@@ -1,0 +1,5 @@
+# Ameba configuration
+# Documentation: https://github.com/crystal-ameba/ameba
+
+Documentation/DocumentationAdmonition:
+  Enabled: false
