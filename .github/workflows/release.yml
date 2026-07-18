@@ -48,6 +48,11 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
 
+    permissions:
+      # Repo default workflow permissions are read-only; this job needs
+      # write access to contents to create a GitHub Release.
+      contents: write
+
     container:
       # Alpine (musl libc) is what makes `--static` produce a real static
       # binary — the official Crystal Alpine image ships with the static
