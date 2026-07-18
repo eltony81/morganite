@@ -1,0 +1,325 @@
+# Morganite – Piano di sviluppo
+
+> **Morganite** è un job scheduler / background worker scritto in [Crystal](https://crystal-lang.org/) ispirato funzionalmente a [Sidekiq](https://sidekiq.org/).  
+> Questo file è il punto unico di verità per il lavoro da svolgere: ogni task ha una checkbox che OpenCode e il dev aggiornano man mano.
+
+---
+
+## 0. Scope e scelte iniziali
+
+### 0.1 Cosa coprire
+
+- **Core (must-have)** – enqueue, dequeue, esecuzione concorrente, retry, dead jobs, scheduled jobs, Web UI basilare.
+- **Pro/Enterprise (should-have)** – batches, unique jobs, rate limiting, cron.
+- **Nice-to-have** – embedded dashboard avanzata, metrics Prometheus, admin API REST, plugin system.
+
+### 0.2 Stack tecnologico proposto
+
+| Componente | Scelta | Motivo |
+|------------|--------|--------|
+| Linguaggio | Crystal 1.15+ | Compilato, Ruby-like, fiber-based concurrency |
+| Backend queue | Redis 6+ | Stessa filosofia di Sidekiq; strutture dati già pronte (lists, sorted sets, hashes) |
+| Client Redis | `stefanwille/crystal-redis` | Maturo, pooled, supporta pipelines/transactions |
+| Web UI | Kemal | Leggero, DSL simile a Sinatra, già usato da progetti Crystal |
+| Serializzazione | JSON | Interoperabilità con altri linguaggi; schema compatibile Sidekiq where possible |
+| Testing | `crystal spec` + Redis locale | Match nativo del linguaggio |
+| CLI | Built-in `OptionParser` | Nessuna dipendenza extra |
+| Packaging | `shards` + Dockerfile + binary statico | Semplicità di deploy |
+
+### 0.3 Knowledge base
+
+Si raccomanda di mantenere aggiornata la cartella [`./crystal_knowledge`](./crystal_knowledge) con snippet, lezioni apprese e link utili durante lo sviluppo.
+
+- [x] Popolare `crystal_knowledge/` con le sezioni minime (linguaggio, concurrency, Redis, web, testing, packaging)
+- [ ] Aggiornare i file della knowledge base ogni volta che si prende una decisione tecnica non ovvia
+
+---
+
+## M0 – Setup e scaffold del progetto
+
+- [x] Inizializzare `shard.yml` con nome, versione, licenza e dipendenze iniziali (`redis`, `kemal`)
+- [x] Creare struttura directory: `src/morganite/`, `spec/`, `bin/`, `web/`, `config/`
+- [x] Configurare `.gitignore`, `.editorconfig`, `Makefile`/`justfile` con task comuni (`build`, `test`, `run`, `fmt`, `lint`)
+- [x] Scrivere il primo spec di smoke test che verifichi l’avvio del processo
+- [x] Aggiungere Docker Compose con Redis per lo sviluppo locale
+- [x] Definire convenzioni di naming e stile Crystal per il progetto
+- [x] Aggiungere Docker Compose E2E (`docker-compose.e2e.yml`) con app esempio (`examples/demo_app/`)
+- [x] Verificare che lo suite E2E passi con Podman
+
+---
+
+## M1 – Core queue engine
+
+Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo concorrente.
+
+### M1.1 Modello dati job
+
+- [ ] Definire la struct/classe `Morganite::Job` con campi: `jid`, `class`, `args`, `queue`, `created_at`, `enqueued_at`, `retry`, `retry_count`, `error_message`, `error_backtrace`, `failed_at`, `retried_at`
+- [ ] Implementare serializzazione/deserializzazione JSON bidirezionale
+- [ ] Generatore di `jid` (SecureRandom/UUID)
+
+### M1.2 Producer (enqueue)
+
+- [ ] Implementare `Morganite::Client` per enqueue su una coda Redis list (`lpush` su `queue:<name>`)
+- [ ] Supportare `perform_async`, `perform_at`, `perform_in`
+- [ ] Implementare la coda scheduled come sorted set `morganite:scheduled` con score timestamp
+- [ ] Aggiungere transaction/pipeline per ridurre round-trip Redis
+
+### M1.3 Consumer (fetch + execute)
+
+- [ ] Implementare fetch atomico da coda con `brpop` o Redis streams (valutare)
+- [ ] Supportare ` reliable fetch` con `rpoplpush` / `brpoplpush` verso una working list per evitare perdite
+- [ ] Implementare worker pool basato su fiber con concurrency configurabile
+- [ ] Eseguire il job invocando il worker registrato via `Morganite::Worker.included`
+- [ ] Gestire graceful shutdown (fermare fetch, terminare job in corso, chiudere connessioni)
+
+### M1.4 Registrazione worker
+
+- [ ] Modulo `Morganite::Worker` con macro per definire `perform(args)`
+- [ ] Registry runtime dei worker (Hash nome -> classe)
+- [ ] Supporto per `sidekiq_options` equivalenti (`queue`, `retry`, `backtrace`, `dead`)
+
+### M1.5 Test
+
+- [ ] Spec per enqueue/dequeue con Redis fittizio o container Redis
+- [ ] Spec per esecuzione worker
+- [ ] Spec per graceful shutdown
+
+---
+
+## M2 – Affidabilità: retry, errori e dead jobs
+
+### M2.1 Retry
+
+- [ ] Catturare eccezioni in `perform`
+- [ ] Implementare contatore `retry_count`
+- [ ] Rienqueue in `morganite:retry` sorted set con score = `now + backoff(retry_count)`
+- [ ] Implementare backoff esponenziale con jitter (default Sidekiq-like)
+- [ ] Permettere override del backoff a livello di job/worker
+- [ ] Limitare `max_retries` (default 25)
+
+### M2.2 Dead letter queue
+
+- [ ] Dopo max retries spostare il job in `morganite:dead` sorted set (score = now)
+- [ ] Implementare `dead_max_jobs` e `dead_timeout_in_seconds`
+- [ ] Permettere retry manuale dalla dead queue (sposta in `morganite:retry`)
+- [ ] Permettere cancellazione dalla dead queue
+
+### M2.3 Gestione errori
+
+- [ ] Salvare `error_message`, `error_backtrace`, `failed_at`, `retried_at`
+- [ ] Opzione `backtrace` (true/false/numero linee)
+- [ ] Distinguere errori ritrattabili vs non ritrattabili (es. `Morganite::Discard`)
+
+### M2.4 Test
+
+- [ ] Spec per retry automatico
+- [ ] Spec per dead job dopo esaurimento retry
+- [ ] Spec per backoff
+- [ ] Spec per retry manuale dalla dead queue
+
+---
+
+## M3 – Scheduling e cron
+
+### M3.1 Scheduled jobs
+
+- [ ] Processo `scheduler` che sposta job da `morganite:scheduled` alla rispettiva `queue:<name>` quando il timestamp è maturo
+- [ ] Usare `zrangebyscore` + `zrem` atomica con Lua script o Redis transaction
+- [ ] Bilanciare frequenza polling vs latenza
+
+### M3.2 Retry poller
+
+- [ ] Processo dedicato che sposta job da `morganite:retry` alle code quando maturi
+- [ ] Riutilizzare lo stesso meccanismo dello scheduler
+
+### M3.3 Cron (Pro-like)
+
+- [ ] Parser cron (es. `0 9 * * 1`) oppure integrare shard esistente
+- [ ] Schedulare istanze di job ricorrenti in `morganite:scheduled`
+- [ ] Persistenza dell’ultima esecuzione
+- [ ] Gestione timezone
+
+### M3.4 Test
+
+- [ ] Spec per job schedulato nel futuro
+- [ ] Spec per retry schedulato
+- [ ] Spec per job cron
+
+---
+
+## M4 – Web UI
+
+### M4.1 Server web
+
+- [ ] Integrare Kemal nel processo Morganite (opzionale, porta configurabile)
+- [ ] Route `/` -> redirect a `/morganite`
+- [ ] Route `/morganite` -> dashboard
+- [ ] Servire asset statici (CSS/JS) oppure inline per semplicità
+
+### M4.2 Dashboard views
+
+- [ ] Vista riepilogo: code, processi attivi, job schedulati, retry, dead
+- [ ] Vista coda: lista job, pulsante delete
+- [ ] Vista scheduled/retry/dead: lista con timestamp, pulsanti delete/retry
+- [ ] Vista processi: PID, hostname, concurrency, uptime, code ascoltate
+- [ ] Vista dettaglio job: payload, errori, backtrace
+
+### M4.3 API per azioni
+
+- [ ] POST `/morganite/queues/:name/delete` – svuota coda
+- [ ] POST `/morganite/retries/:jid/retry` – retry singolo job
+- [ ] POST `/morganite/dead/:jid/retry` – retry dead job
+- [ ] POST `/morganite/dead/:jid/delete` – cancella dead job
+- [ ] POST `/morganite/scheduled/:jid/delete` – cancella scheduled job
+
+### M4.4 Sicurezza
+
+- [ ] Supporto autenticazione base (username/password) opzionale
+- [ ] CSRF token per azioni destructive (se necessario)
+
+### M4.5 Test
+
+- [ ] Spec HTTP per le route principali
+- [ ] Spec per azioni destructive
+
+---
+
+## M5 – Middleware e hooks
+
+### M5.1 Middleware server
+
+- [ ] Definire `Morganite::ServerMiddleware` con `call(job, worker, queue, &block)`
+- [ ] Permettere registrazione globale e per worker
+- [ ] Implementare esempio: logging, metrics, datadog
+
+### M5.2 Middleware client
+
+- [ ] Definire `Morganite::ClientMiddleware` per intercettare enqueue
+- [ ] Esempio: aggiungere metadata, tracing
+
+### M5.3 Hooks
+
+- [ ] `on_startup`, `on_shutdown`
+- [ ] `before_first_fetch`, `after_last_fetch`
+
+### M5.4 Test
+
+- [ ] Spec per middleware che modifica/rifiuta job
+- [ ] Spec per hook lifecycle
+
+---
+
+## M6 – Monitoraggio e metriche
+
+### M6.1 Logging
+
+- [ ] Logger strutturato con livelli (debug, info, warn, error)
+- [ ] Formato JSON opzionale per ambienti produttivi
+- [ ] Correlation ID/job JID nei log
+
+### M6.2 Metriche
+
+- [ ] Contatori: jobs_processed, jobs_failed, jobs_retried, jobs_dead
+- [ ] Tempo di esecuzione per job (histogram)
+- [ ] Esportazione Prometheus `/metrics`
+- [ ] Esportazione statsd opzionale
+
+### M6.3 Health check
+
+- [ ] Endpoint `/health` per load balancer
+- [ ] Verifica connettività Redis
+
+### M6.4 Test
+
+- [ ] Spec per metriche
+- [ ] Spec per health check
+
+---
+
+## M7 – Funzionalità avanzate (Pro-like)
+
+### M7.1 Unique jobs
+
+- [ ] Blocco basato su chiave (args + queue + class) con Redis `SET NX EX`
+- [ ] Strategie: while_executing, until_executed, until_expired
+- [ ] Unlock al termine o in caso di errore
+
+### M7.2 Batches (Bento-like)
+
+- [ ] Definire `Morganite::Batch` con descrizione, callback (success, complete)
+- [ ] Tracciamento contatori jobs totali/success/fail
+- [ ] Callback batch eseguiti quando i contatori raggiungono la soglia
+
+### M7.3 Rate limiting
+
+- [ ] Limitatore basato su Redis (token bucket / sliding window)
+- [ ] Configurazione per worker
+
+### M7.4 Workflows
+
+- [ ] Supporto per job che dipendono da altri job (chained jobs)
+
+### M7.5 Test
+
+- [ ] Spec per unique jobs
+- [ ] Spec per batches
+- [ ] Spec per rate limiting
+
+---
+
+## M8 – CLI, packaging e documentazione
+
+### M8.1 CLI
+
+- [ ] Comando `morganite` con opzioni: `--config`, `--concurrency`, `--queue`, `--require`, `--verbose`
+- [ ] Comando `morganite-web` per avviare solo la Web UI
+- [ ] Comando `morganite` per eseguire un job inline (debug)
+- [ ] Hot reload dei worker in dev? (nice-to-have)
+
+### M8.2 Configurazione
+
+- [ ] File di configurazione YAML/JSON
+- [ ] Variabili d’ambiente (`MORGANITE_REDIS_URL`, `MORGANITE_CONCURRENCY`, ecc.)
+- [ ] Validazione config all’avvio
+
+### M8.3 Packaging
+
+- [ ] Dockerfile multistage per build leggera
+- [ ] Script per binary statico
+- [ ] Release su GitHub tramite CI
+- [ ] Shard pubblico o privato?
+
+### M8.4 Documentazione
+
+- [ ] `README.md` con installazione, uso, API
+- [ ] `docs/` per guide avanzate
+- [ ] Documentare schema Redis (chiavi, sorted set, liste)
+- [ ] Changelog
+
+### M8.5 Test end-to-end
+
+- [ ] Suite di integrazione con Redis reale
+- [ ] Test di carico base (es. 10k job)
+- [ ] Benchmark vs Sidekiq (opzionale)
+
+---
+
+## Note per chi usa questo file
+
+1. **Completamento task**: quando un task è fatto, sostituire `[ ]` con `[x]`.
+2. **Task bloccati**: aggiungere un commento `<!-- bloccato: motivo -->` sotto il task.
+3. **Nuovi task**: aggiungerli nella milestone corretta o in una sezione `Backlog` in fondo.
+4. **Decisioni tecniche**: documentarle in `crystal_knowledge/decisions.md`.
+
+---
+
+## Backlog / idee future
+
+- [ ] Supporto multi-Redis (cluster/sentinel)
+- [ ] Storage alternativo (SQLite? NATS?)
+- [ ] Plugin system formale
+- [ ] Admin API REST completa
+- [ ] Web UI in React/Vue separata
+- [ ] Integrazione con OpenTelemetry
+- [ ] Job encryption dei payload

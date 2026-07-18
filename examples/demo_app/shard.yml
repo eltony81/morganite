@@ -1,0 +1,17 @@
+name: demo_app
+version: 0.1.0
+
+description: |
+  Example application used to run end-to-end tests against Morganite.
+  It will be migrated to use Morganite APIs as the library grows.
+
+authors:
+  - Morganite Contributors
+
+license: MIT
+
+crystal: 1.15.0
+
+dependencies:
+  morganite:
+    path: ../..

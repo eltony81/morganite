@@ -1,0 +1,12 @@
+.DS_Store
+/.shards/
+/lib/
+/bin/
+!/bin/.gitkeep
+!/bin/morganite
+*.log
+/tmp/
+/coverage/
+*.dwarf
+morganite
+morganite-web
