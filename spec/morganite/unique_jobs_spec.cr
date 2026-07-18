@@ -171,4 +171,31 @@ describe Morganite::UniqueJobs do
     duplicate2 = UniqueManualUnlockWorker.perform_async(1)
     duplicate2.should be_a(Morganite::Job)
   end
+
+  it "does not release a lock that a different job instance now owns" do
+    # Regression test: unlock used to be an unconditional DEL. If job A's
+    # lock TTL expired and job B legitimately acquired the same unique key
+    # in the meantime, job A finishing late and calling unlock would delete
+    # job B's active lock, breaking the mutual-exclusion guarantee.
+    job_a = Morganite::Client.build_job("UniqueManualUnlockWorker", [] of JSON::Any, "default")
+    Morganite::UniqueJobs.lock(job_a).should be_true
+
+    job_b = Morganite::Client.build_job("UniqueManualUnlockWorker", [] of JSON::Any, "default")
+    redis = Morganite::RedisConnection.new_client
+    redis.set(Morganite::UniqueJobs.lock_key(job_a), job_b.jid)
+
+    Morganite::UniqueJobs.unlock(job_a)
+
+    redis.get(Morganite::UniqueJobs.lock_key(job_a)).should eq(job_b.jid)
+  end
+
+  it "releases the lock when the job still owns it" do
+    job = Morganite::Client.build_job("UniqueManualUnlockWorker", [] of JSON::Any, "default")
+    Morganite::UniqueJobs.lock(job).should be_true
+
+    Morganite::UniqueJobs.unlock(job)
+
+    redis = Morganite::RedisConnection.new_client
+    redis.get(Morganite::UniqueJobs.lock_key(job)).should be_nil
+  end
 end

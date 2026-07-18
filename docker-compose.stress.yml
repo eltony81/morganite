@@ -1,0 +1,75 @@
+version: "3.8"
+
+# Stress test: floods the queue with many more jobs than a single worker can
+# drain instantly, then hard-kills one of two worker processes mid-flight
+# (SIGKILL, no graceful shutdown) to prove OrphanReaper requeues whatever
+# that process left behind in its `morganite:processing:*` list, and the
+# survivor still fully drains the flood. Not part of CI — run with
+# scripts/run_stress_test.sh.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: examples/demo_app/Dockerfile
+    command: ["crystal", "run", "src/demo_app.cr", "--", "work"]
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: stress
+      CONCURRENCY: "10"
+      # Widens the in-flight window per job so a hard kill has a realistic
+      # chance of actually catching some jobs mid-flight. Recovery latency
+      # for a genuinely orphaned job is bounded by the heartbeat TTL (45s,
+      # see launcher.cr), not by this poll interval alone — this just avoids
+      # adding extra delay of its own on top of that.
+      ARTIFICIAL_DELAY_MS: "${ARTIFICIAL_DELAY_MS:-200}"
+      MORGANITE_ORPHAN_REAPER_POLL_INTERVAL_SECONDS: "${ORPHAN_REAPER_POLL_INTERVAL_SECONDS:-5}"
+    restart: "no"
+
+  worker2:
+    build:
+      context: .
+      dockerfile: examples/demo_app/Dockerfile
+    command: ["crystal", "run", "src/demo_app.cr", "--", "work"]
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: stress
+      CONCURRENCY: "10"
+      # Widens the in-flight window per job so a hard kill has a realistic
+      # chance of actually catching some jobs mid-flight, and keeps the
+      # reaper's poll cycle short enough to observe within the test run.
+      ARTIFICIAL_DELAY_MS: "${ARTIFICIAL_DELAY_MS:-200}"
+      MORGANITE_ORPHAN_REAPER_POLL_INTERVAL_SECONDS: "${ORPHAN_REAPER_POLL_INTERVAL_SECONDS:-5}"
+    restart: "no"
+
+  load:
+    build:
+      context: .
+      dockerfile: examples/demo_app/Dockerfile
+    command: ["crystal", "run", "src/load_test.cr"]
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: stress
+      # Kept modest by default: with ARTIFICIAL_DELAY_MS in play, throughput
+      # is deliberately much lower than the plain load test's, and a big
+      # backlog isn't needed to reliably create a genuine one here — bump
+      # both for a heavier run.
+      JOB_COUNT: "${JOB_COUNT:-5000}"
+      TIMEOUT_SECONDS: "${TIMEOUT_SECONDS:-300}"
+    restart: "no"

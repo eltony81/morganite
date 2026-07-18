@@ -2,14 +2,16 @@ require "./job"
 require "./retry"
 require "./redis_connection"
 require "./metrics"
+require "./logger"
 
 module Morganite
   class Discard < Exception
   end
 
   module Failures
-    RETRY_KEY = "morganite:retry"
-    DEAD_KEY  = "morganite:dead"
+    RETRY_KEY     = "morganite:retry"
+    DEAD_KEY      = "morganite:dead"
+    SCHEDULED_KEY = "morganite:scheduled"
 
     def self.handle(job : Job, error : Exception, redis : Redis::Client? = nil)
       return if error.is_a?(Discard)
@@ -21,20 +23,28 @@ module Morganite
       job.error_message = error.message
       job.error_backtrace = backtrace_for(job, error)
 
+      log = Logger.context(jid: job.jid)
+
       if Retry.retry_job?(job)
         job.retried_at = Time.utc.to_unix_f
         Metrics.increment("jobs_retried")
-        schedule_retry(redis_client, job)
+        next_retry_at = schedule_retry(redis_client, job)
+        log.info("job #{job.class} scheduled for retry #{job.retry_count}/#{Retry.max_retries_for(job)} at #{next_retry_at}")
       else
         Metrics.increment("jobs_dead")
         if job.dead?
           to_dead(redis_client, job)
+          log.warn("job #{job.class} moved to dead queue after #{job.retry_count} attempts")
+        else
+          log.warn("job #{job.class} discarded after #{job.retry_count} attempts (dead: false)")
         end
       end
     end
 
-    def self.schedule_retry(redis : Redis::Client, job : Job)
-      redis.zadd(RETRY_KEY, Retry.next_retry_at(job).to_unix, job.to_json)
+    def self.schedule_retry(redis : Redis::Client, job : Job) : Time
+      next_retry_at = Retry.next_retry_at(job)
+      redis.zadd(RETRY_KEY, next_retry_at.to_unix, job.to_json)
+      next_retry_at
     end
 
     def self.to_dead(redis : Redis::Client, job : Job)
@@ -84,12 +94,33 @@ module Morganite
       true
     end
 
+    # Moves a job waiting in the retry set straight back onto its queue,
+    # instead of waiting for RetryPoller to pick it up at its scheduled time.
+    def self.retry_now(jid : String, redis : Redis::Client? = nil) : Bool
+      redis_client = redis || RedisConnection.new_client
+      job = find_by_jid(redis_client, RETRY_KEY, jid)
+      return false unless job
+
+      remove(redis_client, RETRY_KEY, job)
+      redis_client.lpush(job.queue_key, job.to_json)
+      true
+    end
+
     def self.delete_retry(jid : String, redis : Redis::Client? = nil) : Bool
       redis_client = redis || RedisConnection.new_client
       job = find_by_jid(redis_client, RETRY_KEY, jid)
       return false unless job
 
       remove(redis_client, RETRY_KEY, job)
+      true
+    end
+
+    def self.delete_scheduled(jid : String, redis : Redis::Client? = nil) : Bool
+      redis_client = redis || RedisConnection.new_client
+      job = find_by_jid(redis_client, SCHEDULED_KEY, jid)
+      return false unless job
+
+      remove(redis_client, SCHEDULED_KEY, job)
       true
     end
 

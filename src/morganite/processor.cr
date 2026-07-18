@@ -15,17 +15,35 @@ module Morganite
     def initialize(@redis : Redis::Client? = nil)
     end
 
-    def process(job_json : String)
-      job = Job.from_json(job_json)
-      factory = WorkerRegistry.fetch(job.class)
-      worker = factory.call
-      log = Logger.context(jid: job.jid)
+    # Threshold above which a completed job is logged as slow, purely for
+    # observability (does not affect retry/backoff behavior).
+    SLOW_JOB_THRESHOLD = 5.seconds
 
+    def process(job_json : String)
+      # A payload that doesn't even parse has no jid/class to hand to
+      # Failures.handle, so there's nothing to retry: log and drop it rather
+      # than letting the exception escape and kill this worker fiber.
+      job = begin
+        Job.from_json(job_json)
+      rescue ex : JSON::ParseException
+        Logger.error("dropping unparseable job payload: #{ex.message}")
+        Metrics.increment("jobs_unparseable")
+        return
+      end
+
+      log = Logger.context(jid: job.jid)
       log.info("start job #{job.class}")
 
       execution_lock = false
 
       begin
+        # Fetching the worker factory lives inside the rescue-guarded block:
+        # an unknown worker class is a per-job failure like any other and
+        # should go through the normal retry/dead-letter path instead of
+        # raising past this method and killing the calling fiber.
+        factory = WorkerRegistry.fetch(job.class)
+        worker = factory.call
+
         if job.unique == "while_executing"
           execution_lock = UniqueJobs.lock(job, ttl: job.unique_for, redis: @redis)
           unless execution_lock
@@ -65,6 +83,10 @@ module Morganite
       Metrics.observe("#{job.class}_duration", elapsed.total_seconds)
       log = Logger.context(jid: job.jid)
       log.info("finished job #{job.class} in #{elapsed.total_milliseconds.round(2)}ms")
+
+      if elapsed > SLOW_JOB_THRESHOLD
+        log.warn("slow job: #{job.class} took #{elapsed.total_milliseconds.round(2)}ms (threshold #{SLOW_JOB_THRESHOLD.total_seconds}s)")
+      end
     end
 
     private def after_success(job : Job)

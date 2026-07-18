@@ -22,6 +22,7 @@ describe Morganite::Configuration do
         "web_password: secret",
         "secret_key: my-secret",
         "statsd_addr: localhost:8125",
+        "orphan_reaper_poll_interval_seconds: 15",
       ].join("\n"))
 
       config = Morganite::Configuration.from_file(path)
@@ -37,6 +38,7 @@ describe Morganite::Configuration do
       config.web_password.should eq("secret")
       config.secret_key.should eq("my-secret")
       config.statsd_addr.should eq("localhost:8125")
+      config.orphan_reaper_poll_interval_seconds.should eq(15)
     ensure
       FileUtils.rm(path) if File.exists?(path)
     end
@@ -102,6 +104,30 @@ describe Morganite::Configuration do
     config.web_username = "admin"
     config.web_password = nil
     expect_raises(ArgumentError, /web_password/) do
+      config.validate!
+    end
+  end
+
+  it "validates dead_max_jobs" do
+    config = Morganite::Configuration.new
+    config.dead_max_jobs = -1
+    expect_raises(ArgumentError, /dead_max_jobs/) do
+      config.validate!
+    end
+  end
+
+  it "validates dead_timeout_in_seconds" do
+    config = Morganite::Configuration.new
+    config.dead_timeout_in_seconds = -1
+    expect_raises(ArgumentError, /dead_timeout_in_seconds/) do
+      config.validate!
+    end
+  end
+
+  it "validates orphan_reaper_poll_interval_seconds" do
+    config = Morganite::Configuration.new
+    config.orphan_reaper_poll_interval_seconds = 0
+    expect_raises(ArgumentError, /orphan_reaper_poll_interval_seconds/) do
       config.validate!
     end
   end

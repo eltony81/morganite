@@ -1,6 +1,7 @@
 require "./cron"
 require "./client"
 require "./redis_connection"
+require "./logger"
 
 module Morganite
   class CronScheduler
@@ -16,7 +17,13 @@ module Morganite
         when @shutdown.receive
           break
         when timeout(@poll_interval)
-          poll
+          begin
+            poll
+          rescue ex : Exception
+            # Without this, a single Redis hiccup would kill this fiber
+            # forever: no more cron jobs would ever fire.
+            Logger.error("cron scheduler failed, will retry next cycle: #{ex.class}: #{ex.message}")
+          end
         end
       end
     end
@@ -37,6 +44,7 @@ module Morganite
         if next_time <= now
           Client.schedule(cron_job.worker_name, next_time, cron_job.args, Morganite.config.queue)
           set_last_run(cron_job.key, next_time)
+          Logger.info("cron job #{cron_job.worker_name} scheduled for #{next_time}")
         end
       end
     end

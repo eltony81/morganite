@@ -16,6 +16,7 @@ module Morganite
     property web_password : String?
     property secret_key : String
     property statsd_addr : String?
+    property orphan_reaper_poll_interval_seconds : Int32
 
     def initialize(
       @redis_url : String = ENV.fetch("MORGANITE_REDIS_URL", "redis://localhost:6379/0"),
@@ -30,6 +31,7 @@ module Morganite
       @web_password : String? = ENV["MORGANITE_WEB_PASSWORD"]?,
       @secret_key : String = ENV.fetch("MORGANITE_SECRET_KEY", Random::Secure.hex(32)),
       @statsd_addr : String? = ENV["MORGANITE_STATSD_ADDR"]?,
+      @orphan_reaper_poll_interval_seconds : Int32 = ENV.fetch("MORGANITE_ORPHAN_REAPER_POLL_INTERVAL_SECONDS", "30").to_i,
     )
     end
 
@@ -62,6 +64,7 @@ module Morganite
       config.web_password = yaml["web_password"].as_s if yaml["web_password"]?
       config.secret_key = yaml["secret_key"].as_s if yaml["secret_key"]?
       config.statsd_addr = yaml["statsd_addr"].as_s if yaml["statsd_addr"]?
+      config.orphan_reaper_poll_interval_seconds = yaml["orphan_reaper_poll_interval_seconds"].as_i if yaml["orphan_reaper_poll_interval_seconds"]?
 
       config
     end
@@ -84,6 +87,7 @@ module Morganite
       config.web_password = json["web_password"].as_s if json["web_password"]?
       config.secret_key = json["secret_key"].as_s if json["secret_key"]?
       config.statsd_addr = json["statsd_addr"].as_s if json["statsd_addr"]?
+      config.orphan_reaper_poll_interval_seconds = json["orphan_reaper_poll_interval_seconds"].as_i if json["orphan_reaper_poll_interval_seconds"]?
 
       config
     end
@@ -94,6 +98,7 @@ module Morganite
       raise ArgumentError.new("redis_url cannot be empty") if @redis_url.empty?
       raise ArgumentError.new("dead_max_jobs must be greater than or equal to 0") if @dead_max_jobs < 0
       raise ArgumentError.new("dead_timeout_in_seconds must be greater than or equal to 0") if @dead_timeout_in_seconds < 0
+      raise ArgumentError.new("orphan_reaper_poll_interval_seconds must be greater than 0") if @orphan_reaper_poll_interval_seconds <= 0
 
       if @web_username && !@web_password
         raise ArgumentError.new("web_password is required when web_username is set")

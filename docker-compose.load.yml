@@ -1,0 +1,44 @@
+version: "3.8"
+
+# Load test: enqueues a large batch of jobs and measures throughput/latency
+# to drain them with a real (separate-process) worker. Not part of CI —
+# run with scripts/run_load_test.sh.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: examples/demo_app/Dockerfile
+    command: ["crystal", "run", "src/demo_app.cr", "--", "work"]
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: load
+      CONCURRENCY: "10"
+    restart: "no"
+
+  load:
+    build:
+      context: .
+      dockerfile: examples/demo_app/Dockerfile
+    command: ["crystal", "run", "src/load_test.cr"]
+    depends_on:
+      - redis
+      - worker
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_NAME: load
+      JOB_COUNT: "${JOB_COUNT:-20000}"
+      TIMEOUT_SECONDS: "${TIMEOUT_SECONDS:-120}"
+    restart: "no"

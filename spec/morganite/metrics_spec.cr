@@ -24,6 +24,24 @@ describe Morganite::Metrics do
     output.should contain("morganite_my_job_duration_duration_seconds_sum 1.76")
   end
 
+  it "keeps histogram memory bounded regardless of how many values are observed" do
+    # Regression test: observe() used to append every raw value to an
+    # ever-growing array per metric name, which never shrank for the life of
+    # the process. Bucketed counters keep memory at O(BUCKETS.size) instead.
+    histogram = Morganite::Metrics::Histogram.new
+    5_000.times { |i| histogram.observe((i % 20) * 0.001) }
+
+    histogram.bucket_counts.size.should eq(Morganite::Metrics::BUCKETS.size)
+    histogram.count.should eq(5_000)
+  end
+
+  it "reports correct bucketed counts and totals through Metrics.observe" do
+    5_000.times { |i| Morganite::Metrics.observe("hot_path_duration", (i % 20) * 0.001) }
+
+    output = Morganite::Metrics.to_prometheus
+    output.should contain("morganite_hot_path_duration_duration_seconds_count 5000")
+  end
+
   it "resets all metrics" do
     Morganite::Metrics.increment("jobs_processed")
     Morganite::Metrics.observe("my_job_duration", 0.1)

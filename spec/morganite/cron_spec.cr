@@ -45,4 +45,24 @@ describe Morganite::CronExpression do
     next_time.should eq(Time.local(2026, 7, 13, 6, 0, 0, location: rome))
     next_time.location.to_s.should eq("Europe/Rome")
   end
+
+  it "rejects a day-of-month/month combination that can never occur" do
+    # Regression test: before validating reachability at construction time,
+    # an expression like "February 31st" would make `next` silently scan
+    # ~5.2M minutes (its full 10-year search horizon) on every single call,
+    # forever, since CronScheduler polls every 30s in an endless loop.
+    expect_raises(Exception, /can never match/) do
+      Morganite::CronExpression.new("0 0 31 2 *")
+    end
+  end
+
+  it "still accepts a day-of-month/month combination that only occurs in some months" do
+    # Day 30 doesn't exist in every month, but it's reachable (e.g. April),
+    # so this must not be rejected by the reachability check.
+    cron = Morganite::CronExpression.new("0 0 30 * *")
+    from = Time.utc(2026, 1, 1, 0, 0, 0)
+    next_time = cron.next(from)
+
+    next_time.day.should eq(30)
+  end
 end

@@ -4,8 +4,25 @@ module Morganite
   module Metrics
     BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
 
+    # Cumulative bucket counters (Prometheus-style) instead of raw observed
+    # values: memory is O(BUCKETS.size) per metric name regardless of how many
+    # jobs run, instead of growing forever for the life of the process.
+    class Histogram
+      getter bucket_counts = Array(Int64).new(BUCKETS.size, 0_i64)
+      getter sum = 0.0
+      getter count = 0_i64
+
+      def observe(value : Float64)
+        BUCKETS.each_with_index do |bucket, i|
+          @bucket_counts[i] += 1 if value <= bucket
+        end
+        @sum += value
+        @count += 1
+      end
+    end
+
     @@counters = Hash(String, Int64).new(0_i64)
-    @@histograms = Hash(String, Array(Float64)).new
+    @@histograms = Hash(String, Histogram).new
     @@mutex = Mutex.new
 
     def self.increment(name : String, value : Int64 = 1_i64)
@@ -17,8 +34,7 @@ module Morganite
 
     def self.observe(name : String, value : Float64)
       @@mutex.synchronize do
-        @@histograms[name] ||= [] of Float64
-        @@histograms[name] << value
+        (@@histograms[name] ||= Histogram.new).observe(value)
       end
       Statsd.histogram("morganite.#{name}", value)
     end
@@ -32,18 +48,17 @@ module Morganite
           io.puts "morganite_#{name} #{count}"
         end
 
-        @@histograms.each do |name, values|
+        @@histograms.each do |name, histogram|
           io.puts "# HELP morganite_#{name}_duration_seconds execution duration"
           io.puts "# TYPE morganite_#{name}_duration_seconds histogram"
 
-          BUCKETS.each do |bucket|
-            count = values.count { |v| v <= bucket }
-            io.puts %(morganite_#{name}_duration_seconds_bucket{le="#{bucket}"} #{count})
+          BUCKETS.each_with_index do |bucket, i|
+            io.puts %(morganite_#{name}_duration_seconds_bucket{le="#{bucket}"} #{histogram.bucket_counts[i]})
           end
 
-          io.puts %(morganite_#{name}_duration_seconds_bucket{le="+Inf"} #{values.size})
-          io.puts "morganite_#{name}_duration_seconds_sum #{values.sum}"
-          io.puts "morganite_#{name}_duration_seconds_count #{values.size}"
+          io.puts %(morganite_#{name}_duration_seconds_bucket{le="+Inf"} #{histogram.count})
+          io.puts "morganite_#{name}_duration_seconds_sum #{histogram.sum}"
+          io.puts "morganite_#{name}_duration_seconds_count #{histogram.count}"
         end
 
         io.to_s

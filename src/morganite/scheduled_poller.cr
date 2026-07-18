@@ -1,6 +1,7 @@
 require "./redis_connection"
 require "./job"
 require "./poller_script"
+require "./logger"
 
 module Morganite
   class ScheduledPoller
@@ -16,7 +17,13 @@ module Morganite
         when @shutdown.receive
           break
         when timeout(@poll_interval)
-          poll
+          begin
+            poll
+          rescue ex : Exception
+            # Without this, a single Redis hiccup would kill this fiber
+            # forever: no more scheduled jobs would ever become due.
+            Logger.error("scheduled poller failed, will retry next cycle: #{ex.class}: #{ex.message}")
+          end
         end
       end
     end
@@ -36,8 +43,10 @@ module Morganite
           next unless job_json.is_a?(String)
           jobs << Job.from_json(job_json)
         end
+        return if jobs.empty?
 
-        PollerScript.move_mature_jobs(redis, SCHEDULED_KEY, jobs)
+        moved = PollerScript.move_mature_jobs(redis, SCHEDULED_KEY, jobs)
+        Logger.debug("scheduled poller moved #{moved} job(s) to their queue") if moved > 0
       end
     end
   end

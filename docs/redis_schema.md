@@ -8,6 +8,7 @@ Morganite uses Redis as its sole backend. This document describes the keys, list
 |-----|------|-------------|
 | `morganite:queue:<name>` | List | Jobs waiting to be processed on queue `<name>`. |
 | `morganite:processing:<hostname>:<pid>` | List | Jobs currently being processed by a specific worker process. Used for reliable fetch (`brpoplpush`). |
+| `morganite:processes:<hostname>:<pid>` | String | Heartbeat for a running process, refreshed periodically with `SET ... EX`. Used by `OrphanReaper` to tell a live process from one that died without a graceful shutdown (crash, `SIGKILL`, OOM) and requeue whatever was left in its `morganite:processing:*` list. |
 
 ## Scheduling and retries
 

@@ -1,4 +1,5 @@
 require "./redis_connection"
+require "./logger"
 
 module Morganite
   module RateLimiter
@@ -10,14 +11,22 @@ module Morganite
       key = "#{PREFIX}#{worker_class}"
 
       Morganite.pool.with do |redis|
-        current = redis.get(key)
-        tokens = current.is_a?(String) ? current.to_i : limit
+        # Seed the bucket with `limit` tokens the first time it's touched in a
+        # window. NX means concurrent callers race harmlessly to create it once.
+        if window > 0
+          redis.set(key, limit.to_s, nx: true, ex: window)
+        else
+          redis.set(key, limit.to_s, nx: true)
+        end
 
-        if tokens > 0
-          redis.decr(key)
-          redis.expire(key, window) if current.nil?
+        remaining = redis.decr(key)
+        remaining = remaining.is_a?(Int) ? remaining : -1
+
+        if remaining >= 0
+          Logger.debug("rate limit token acquired for #{worker_class} (#{remaining}/#{limit} remaining in window)")
           true
         else
+          Logger.warn("rate limit exceeded for #{worker_class} (#{limit}/#{window}s)")
           false
         end
       end
@@ -27,6 +36,7 @@ module Morganite
       Morganite.pool.with do |redis|
         redis.lpush(queue_key, job_json)
       end
+      Logger.debug("job rescheduled due to rate limit on #{queue_key}")
     end
   end
 end

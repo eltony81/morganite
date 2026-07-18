@@ -1,5 +1,5 @@
 name: morganite
-version: 0.1.0
+version: 0.2.0
 
 description: |
   Morganite is a background job processing library for Crystal, inspired by Sidekiq.

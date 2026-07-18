@@ -40,4 +40,16 @@ describe Morganite::RateLimiter do
     # The second job should still be in the queue because it was rescheduled
     redis.llen("morganite:queue:default").should eq(1)
   end
+
+  it "allows exactly `limit` calls per window, not just one" do
+    # Regression test: `allow?` used to seed the Redis counter with `limit`
+    # only in Crystal memory, then DECR a key that didn't exist yet, which
+    # Redis initializes at 0 and decrements to -1. So only the very first
+    # call was ever allowed, regardless of `limit`.
+    3.times do
+      Morganite::RateLimiter.allow?("SomeBurstyWorker", 3, 60).should be_true
+    end
+
+    Morganite::RateLimiter.allow?("SomeBurstyWorker", 3, 60).should be_false
+  end
 end

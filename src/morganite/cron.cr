@@ -2,10 +2,16 @@ module Morganite
   class CronExpression
     FIELD_RANGES = [0..59, 0..23, 1..31, 1..12, 0..6]
 
+    # Generous (leap-year-safe) day counts, used only to reject day-of-month /
+    # month combinations that can never occur (e.g. "31 2" = February 31st).
+    DAYS_IN_MONTH = {1 => 31, 2 => 29, 3 => 31, 4 => 30, 5 => 31, 6 => 30,
+                     7 => 31, 8 => 31, 9 => 30, 10 => 31, 11 => 30, 12 => 31}
+
     @fields : Array(Array(Int32))
 
     def initialize(@expression : String)
       @fields = parse(@expression)
+      validate_reachable!
     end
 
     def next(from : Time = Time.utc) : Time
@@ -57,6 +63,18 @@ module Morganite
         raise "Invalid cron value #{value} for range #{range}"
       end
       [value]
+    end
+
+    # Rejects expressions whose day-of-month/month fields can never coincide
+    # (e.g. day 30-31 restricted to February). Without this, `next` would
+    # silently burn through a ~10 year / 5.2M-minute search on every single
+    # call (CronScheduler polls every 30s, forever) before giving up.
+    private def validate_reachable!
+      days = @fields[2]
+      months = @fields[3]
+
+      reachable = months.any? { |month| days.any? { |day| day <= DAYS_IN_MONTH[month] } }
+      raise "Invalid cron expression: '#{@expression}' (day-of-month/month combination can never match)" unless reachable
     end
 
     private def matches?(time : Time) : Bool

@@ -153,6 +153,7 @@ Morganite can be configured via environment variables or a YAML/JSON file. Envir
 | `MORGANITE_WEB_PASSWORD` | - | Web UI basic auth password |
 | `MORGANITE_SECRET_KEY` | random | Secret key for CSRF |
 | `MORGANITE_STATSD_ADDR` | - | StatsD collector address |
+| `MORGANITE_ORPHAN_REAPER_POLL_INTERVAL_SECONDS` | `30` | How often `OrphanReaper` scans for jobs left behind by a process that died without a graceful shutdown |
 
 ### Configuration file
 
@@ -244,6 +245,30 @@ podman-compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
 ```
 
 The `e2e` service enqueues 100 jobs, waits for the `worker` to process them, and exits with code `0` on success.
+
+## Load test
+
+Not part of `make test` or CI — a separate, heavier suite for measuring throughput and latency against a real (separate-process) worker.
+
+```bash
+./scripts/run_load_test.sh
+
+# Override job count / timeout:
+JOB_COUNT=50000 TIMEOUT_SECONDS=300 ./scripts/run_load_test.sh
+```
+
+The `load` service enqueues `JOB_COUNT` jobs (default 20,000), waits for the `worker` service to drain them, and reports throughput (jobs/sec) and average enqueue-to-processed latency. Exits non-zero if any jobs are lost or the queue doesn't fully drain within `TIMEOUT_SECONDS`.
+
+## Stress test
+
+Also not part of CI. Floods the queue with `JOB_COUNT` jobs (default 100,000) across two worker processes, then hard-kills one of them (`SIGKILL`, no graceful shutdown) partway through to prove `OrphanReaper` requeues whatever that process left behind in its `morganite:processing:*` list, and the survivor still fully drains the flood.
+
+```bash
+./scripts/run_stress_test.sh
+
+# Override job count / timeout:
+JOB_COUNT=200000 TIMEOUT_SECONDS=600 ./scripts/run_stress_test.sh
+```
 
 ## License
 

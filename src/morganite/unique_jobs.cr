@@ -1,10 +1,22 @@
 require "digest/sha256"
 require "./job"
 require "./redis_connection"
+require "./logger"
 
 module Morganite
   module UniqueJobs
     PREFIX = "morganite:unique:"
+
+    # Deletes the lock only if it still holds the value we set (compare-and-delete).
+    # A plain DEL would let a job release a lock it no longer owns after its TTL
+    # expired and a different job instance acquired it in the meantime.
+    UNLOCK_SCRIPT = <<-LUA
+      if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('del', KEYS[1])
+      else
+        return 0
+      end
+    LUA
 
     def self.unique_key(job : Job) : String
       "#{job.class}|#{job.queue}|#{job.args.to_json}"
@@ -35,14 +47,31 @@ module Morganite
                  client.set(key, value, nx: true)
                end
 
-      result == "OK"
+      acquired = result == "OK"
+      Logger.debug("unique lock #{acquired ? "acquired" : "contended"} for #{job.class} (#{job.jid})")
+      acquired
     end
 
-    # Releases a unique lock by job or raw unique key (class|queue|args).
-    def self.unlock(job_or_key : Job | String, redis : Redis::Client? = nil)
-      key = job_or_key.is_a?(Job) ? lock_key(job_or_key) : lock_key(job_or_key)
+    # Releases a job's unique lock, but only if the lock still belongs to this
+    # job's jid. Prevents a slow job whose lock TTL already expired from
+    # deleting the lock a different job instance has since acquired.
+    def self.unlock(job : Job, redis : Redis::Client? = nil)
       client = redis || RedisConnection.new_client
-      client.del(key)
+      result = client.eval(UNLOCK_SCRIPT, keys: [lock_key(job)], args: [job.jid])
+      if result == 1
+        Logger.debug("unique lock released for #{job.class} (#{job.jid})")
+      else
+        Logger.debug("unique lock for #{job.class} (#{job.jid}) already owned by a different instance; not released")
+      end
+      nil
+    end
+
+    # Releases a lock by raw unique key (class|queue|args) unconditionally.
+    # There is no jid to compare against here, so callers must ensure no
+    # other job instance currently owns this lock.
+    def self.unlock(unique_key : String, redis : Redis::Client? = nil)
+      client = redis || RedisConnection.new_client
+      client.del(lock_key(unique_key))
       nil
     end
   end

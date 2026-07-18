@@ -5,7 +5,35 @@ All notable changes to Morganite are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [0.2.0] - Unreleased
+
+A correctness/reliability/security pass across the whole runtime pipeline, driven by real end-to-end, concurrency, load and stress testing rather than inspection alone. See `issues.md` for the full bug writeups.
+
+### Fixed
+
+- **Rate limiter** allowed only 1 job per window regardless of the configured `limit` (`DECR` on a never-seeded Redis key).
+- **Batch** completion callbacks could fire more than once, or fire prematurely while a batch was still being built: `pending` is now bumped before enqueueing (not after), and a new `Batch#finish` (auto-called by `Batch.open`) gates completion on construction actually being done.
+- **Batch** completion could self-deadlock the whole worker pool: `Client.enqueue` for a callback job was called while still holding the connection pool slot used to update counters, exhausting the pool at steady-state concurrency.
+- **Launcher** capped the entire pipeline's throughput at 1 fetch/second regardless of `concurrency`, and its shutdown signal could be silently dropped by a race between two independent receivers on the same channel — occasionally losing a job mid-shutdown. Shutdown now uses `Channel#close` (broadcasts to all waiters) instead of a single `send`.
+- **`UniqueJobs.unlock`** was an unconditional `DEL`; a slow job whose lock TTL had already expired could delete a different job instance's active lock. Now compare-and-delete via a Lua script.
+- Worker fibers and poller fibers (`RetryPoller`, `ScheduledPoller`, `CronScheduler`) could be permanently killed by a malformed job payload, an unregistered worker class, or a single Redis error — silently shrinking effective concurrency or stopping retries/schedules/cron forever. Both are now hardened to log and continue.
+- Web dashboard: "Retry"/"Delete" actions were wired to the wrong Redis key for Scheduled/Retry jobs and were silent no-ops; job data was interpolated into HTML unescaped (stored/reflected XSS); Basic Auth and CSRF comparisons weren't constant-time.
+- `CronExpression#next` could scan its full ~10-year search horizon on every poll, forever, for an unsatisfiable day-of-month/month combination (e.g. February 31st) — now rejected at registration.
+- `Metrics` histograms stored every raw observed value forever; now bucketed counters (Prometheus-style), bounded memory regardless of job volume.
+- `web.cr` used the blocking `KEYS` command instead of `SCAN` for dashboard key enumeration.
+
+### Added
+
+- `OrphanReaper`: requeues jobs left behind in a `morganite:processing:*` list by a process that died without a graceful shutdown (crash, `SIGKILL`, OOM), based on a per-process heartbeat key.
+- `MORGANITE_ORPHAN_REAPER_POLL_INTERVAL_SECONDS` configuration option.
+- Structured logging across the previously-silent parts of the pipeline: Redis connection-pool wait time, launcher shutdown phases, unique-lock acquisition, batch/workflow completion, retry/dead-letter transitions, poller cycles, and web auth/CSRF failures.
+- `spec/morganite/concurrency_spec.cr`: multi-fiber reliable-fetch correctness, concurrent unique-enqueue races, concurrent rate-limiter races.
+- Non-happy-path spec coverage: malformed job payloads, unregistered worker classes, `Discard`, denied unique locks, poller resilience to Redis errors.
+- Load test (`scripts/run_load_test.sh`, opt-in, not part of CI): throughput/latency measurement against a real separate-process worker.
+- Stress test (`scripts/run_stress_test.sh`, opt-in, not part of CI): floods the queue and hard-kills a worker process mid-flight to exercise `OrphanReaper` recovery.
+- E2E suite (`scripts/run_e2e.sh`) extended to verify the rate limiter, batch, and cron fixes directly, not just baseline job processing.
+
+## [0.1.0] - 2026-07-18
 
 ### Added
 
@@ -25,4 +53,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration from YAML/JSON files with environment-variable override.
 - Dockerfile multistage and `make docker-build` target.
 
+[0.2.0]: https://github.com/eltony81/morganite/releases/tag/v0.2.0
 [0.1.0]: https://github.com/eltony81/morganite/releases/tag/v0.1.0
