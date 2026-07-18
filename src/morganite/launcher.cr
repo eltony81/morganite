@@ -2,6 +2,7 @@ require "./processor"
 require "./retry_poller"
 require "./scheduled_poller"
 require "./cron_scheduler"
+require "./web"
 
 module Morganite
   class Launcher
@@ -27,6 +28,7 @@ module Morganite
       spawn { @retry_poller.run }
       spawn { @scheduled_poller.run }
       spawn { @cron_scheduler.run }
+      spawn { Morganite::Web.start }
 
       @shutdown.receive
       @jobs.close
@@ -34,6 +36,7 @@ module Morganite
       @retry_poller.stop
       @scheduled_poller.stop
       @cron_scheduler.stop
+      Morganite::Web.stop
     end
 
     def stop

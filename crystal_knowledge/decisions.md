@@ -88,3 +88,15 @@ Usare questo file per registrare decisioni tecniche non ovvie.
   - Macro `cron` nel modulo `Worker` per dichiarare espressioni ricorrenti nelle classi worker.
 - **Conseguenze**: scheduling e cron funzionanti senza shard aggiuntivi; timezone non ancora supportata.
 - **Reversibilità**: media – il parser interno può essere sostituito da uno shard specializzato in futuro.
+
+### 2026-07-18 – Web UI
+
+- **Contesto**: M4 richiede una dashboard per monitorare code e job.
+- **Decisione**:
+  - Usare Kemal come web framework.
+  - Aggiornare Kemal a `~> 1.11.0` per compatibilità con Crystal 1.20.
+  - Web UI avviata all'interno del processo `Launcher` su porta configurabile (default 7420).
+  - HTML generato inline con `String.build` per evitare dipendenze da motori di template.
+  - Route per dashboard, dettaglio coda, azioni delete/retry.
+- **Conseguenze**: nessuna dipendenza extra; UI minimale ma funzionante. Autenticazione e CSRF rimandati a future iterazioni.
+- **Reversibilità**: alta – le route e le view sono isolate in `Morganite::Web`.

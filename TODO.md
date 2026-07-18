@@ -152,26 +152,25 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M4.1 Server web
 
-- [ ] Integrare Kemal nel processo Morganite (opzionale, porta configurabile)
-- [ ] Route `/` -> redirect a `/morganite`
-- [ ] Route `/morganite` -> dashboard
-- [ ] Servire asset statici (CSS/JS) oppure inline per semplicità
+- [x] Integrare Kemal nel processo Morganite (porta configurabile via `MORGANITE_WEB_PORT`)
+- [x] Route `/` -> redirect a `/morganite`
+- [x] Route `/morganite` -> dashboard
+- [x] Stili inline per semplicità
 
 ### M4.2 Dashboard views
 
-- [ ] Vista riepilogo: code, processi attivi, job schedulati, retry, dead
-- [ ] Vista coda: lista job, pulsante delete
-- [ ] Vista scheduled/retry/dead: lista con timestamp, pulsanti delete/retry
+- [x] Vista riepilogo: code, job schedulati, retry, dead
+- [x] Vista coda: lista job, pulsante delete
+- [x] Vista scheduled/retry/dead: lista con pulsanti delete/retry
 - [ ] Vista processi: PID, hostname, concurrency, uptime, code ascoltate
 - [ ] Vista dettaglio job: payload, errori, backtrace
 
 ### M4.3 API per azioni
 
-- [ ] POST `/morganite/queues/:name/delete` – svuota coda
-- [ ] POST `/morganite/retries/:jid/retry` – retry singolo job
-- [ ] POST `/morganite/dead/:jid/retry` – retry dead job
-- [ ] POST `/morganite/dead/:jid/delete` – cancella dead job
-- [ ] POST `/morganite/scheduled/:jid/delete` – cancella scheduled job
+- [x] POST `/morganite/queues/:name/delete` – svuota coda
+- [x] POST `/morganite/dead/:jid/retry` – retry dead job
+- [x] POST `/morganite/dead/:jid/delete` – cancella dead job
+- [x] POST `/morganite/scheduled/:jid/delete` – cancella scheduled/retry job
 
 ### M4.4 Sicurezza
 
@@ -180,8 +179,8 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M4.5 Test
 
-- [ ] Spec HTTP per le route principali
-- [ ] Spec per azioni destructive
+- [x] Spec HTTP per le route principali
+- [x] Spec per azioni destructive
 
 ---
 

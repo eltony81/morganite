@@ -53,6 +53,26 @@ end
 MyWorker.perform_async("hello", "world")
 ```
 
+## Scheduled and cron jobs
+
+```crystal
+# Run once in 5 minutes
+MyWorker.perform_in(5.minutes, "later")
+
+# Run at a specific time
+MyWorker.perform_at(Time.utc(2026, 12, 25, 9, 0, 0), "christmas")
+
+# Run every minute (cron)
+class RecurringWorker
+  include Morganite::Worker
+  cron "* * * * *"
+
+  def perform(args)
+    puts "Tick"
+  end
+end
+```
+
 ## Running the processor
 
 ```bash
@@ -60,7 +80,18 @@ shards build morganite
 ./bin/morganite
 ```
 
-The processor fetches jobs from `morganite:queue:default` and executes them concurrently.
+The processor fetches jobs from `morganite:queue:default`, executes them concurrently, retries failed ones and schedules future/cron jobs.
+
+## Web UI
+
+Morganite embeds a dashboard on port `7420` (configurable via `MORGANITE_WEB_PORT`):
+
+```bash
+./bin/morganite
+# open http://localhost:7420/morganite
+```
+
+The dashboard shows queues, scheduled, retry and dead jobs, and allows you to delete or retry them.
 
 ## Development
 
