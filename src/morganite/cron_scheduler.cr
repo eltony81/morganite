@@ -29,7 +29,7 @@ module Morganite
       now = Time.utc
       Cron.jobs.each do |cron_job|
         last_run = last_run_for(cron_job.key)
-        from = last_run || (now - 2.minutes)
+        from = last_run || (now - 1.minute)
         next_time = cron_job.cron.next(from)
 
         if next_time <= now
@@ -55,7 +55,7 @@ module Morganite
   end
 
   module Cron
-    record Job, worker_name : String, expression : String, args : Array(JSON::Any), cron : Cron do
+    record Job, worker_name : String, expression : String, args : Array(JSON::Any), cron : CronExpression do
       def key
         "#{worker_name}:#{expression}"
       end
@@ -64,7 +64,7 @@ module Morganite
     @@jobs = [] of Job
 
     def self.register(worker_name : String, expression : String, args = [] of JSON::Any)
-      @@jobs << Job.new(worker_name, expression, args, Cron.new(expression))
+      @@jobs << Job.new(worker_name, expression, args, CronExpression.new(expression))
     end
 
     def self.jobs

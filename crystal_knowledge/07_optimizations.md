@@ -76,6 +76,17 @@ Strumenti utili:
 - `BRPOPLPUSH` per reliable fetch.
 - Lua script atomico per spostare job da sorted set a lista.
 
+## 5. Sostituire costrutti con fibers
+
+Alla fine dello sviluppo funzionale, fare una passata di review su tutti i componenti per individuare:
+
+- Loop con `sleep` fissi che potrebbero diventare `select` su `Channel` + `timeout`.
+- Variabili booleane `@running` usate per controllare cicli (anti-pattern in Crystal).
+- Operazioni sincrone bloccanti che potrebbero girare in fiber dedicate (es. I/O, attesa su Redis).
+- Mutex e sezioni critiche che potrebbero essere riscritte con `Channel` o `Atomic`.
+
+Obiettivo: massimizzare l'uso di `spawn`, `Channel` e `select`, riducendo al minimo lock espliciti e busy wait.
+
 ## Decisioni
 
 Nessuna ancora presa; queste voci sono in backlog e verranno rivalutate dopo il completamento delle milestone funzionali.

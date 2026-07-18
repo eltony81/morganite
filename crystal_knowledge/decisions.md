@@ -76,3 +76,15 @@ Usare questo file per registrare decisioni tecniche non ovvie.
   - Usare `crystal tool profile` e benchmark E2E per guidare le scelte.
 - **Conseguenze**: nessuna modifica immediata; evita ottimizzazioni premature.
 - **Reversibilità**: alta – le decisioni verranno prese con dati di profilazione.
+
+### 2026-07-18 – Scheduling e cron
+
+- **Contesto**: M3 richiede scheduled jobs, retry poller e cron.
+- **Decisione**:
+  - `ScheduledPoller` sposta job maturi da `morganite:scheduled` alle code.
+  - `RetryPoller` (già introdotto in M2) usa lo stesso pattern.
+  - Parser cron implementato internamente come `Morganite::CronExpression` per evitare dipendenze esterne potenzialmente non compatibili.
+  - `CronScheduler` registra job ricorrenti, ne calcola il prossimo istante e li inserisce in `morganite:scheduled`, salvando l’ultima esecuzione in un hash Redis.
+  - Macro `cron` nel modulo `Worker` per dichiarare espressioni ricorrenti nelle classi worker.
+- **Conseguenze**: scheduling e cron funzionanti senza shard aggiuntivi; timezone non ancora supportata.
+- **Reversibilità**: media – il parser interno può essere sostituito da uno shard specializzato in futuro.

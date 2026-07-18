@@ -124,27 +124,27 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M3.1 Scheduled jobs
 
-- [ ] Processo `scheduler` che sposta job da `morganite:scheduled` alla rispettiva `queue:<name>` quando il timestamp è maturo
+- [x] Processo `scheduler` (`ScheduledPoller`) che sposta job da `morganite:scheduled` alla rispettiva `morganite:queue:<name>` quando il timestamp è maturo
 - [ ] Usare `zrangebyscore` + `zrem` atomica con Lua script o Redis transaction
-- [ ] Bilanciare frequenza polling vs latenza
+- [x] Bilanciare frequenza polling vs latenza (configurabile, default 1s)
 
 ### M3.2 Retry poller
 
-- [ ] Processo dedicato che sposta job da `morganite:retry` alle code quando maturi
-- [ ] Riutilizzare lo stesso meccanismo dello scheduler
+- [x] Processo dedicato (`RetryPoller`) che sposta job da `morganite:retry` alle code quando maturi
+- [x] Riutilizzare lo stesso meccanismo dello scheduler
 
 ### M3.3 Cron (Pro-like)
 
-- [ ] Parser cron (es. `0 9 * * 1`) oppure integrare shard esistente
-- [ ] Schedulare istanze di job ricorrenti in `morganite:scheduled`
-- [ ] Persistenza dell’ultima esecuzione
+- [x] Parser cron (`Morganite::CronExpression`) con supporto a `*`, `*/n`, liste, range
+- [x] Schedulare istanze di job ricorrenti in `morganite:scheduled`
+- [x] Persistenza dell’ultima esecuzione in Redis hash
 - [ ] Gestione timezone
 
 ### M3.4 Test
 
-- [ ] Spec per job schedulato nel futuro
-- [ ] Spec per retry schedulato
-- [ ] Spec per job cron
+- [x] Spec per job schedulato nel futuro
+- [x] Spec per retry schedulato
+- [x] Spec per job cron
 
 ---
 

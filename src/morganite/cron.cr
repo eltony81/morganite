@@ -1,6 +1,8 @@
 module Morganite
-  class Cron
+  class CronExpression
     FIELD_RANGES = [0..59, 0..23, 1..31, 1..12, 0..6]
+
+    @fields : Array(Array(Int32))
 
     def initialize(@expression : String)
       @fields = parse(@expression)
@@ -37,7 +39,7 @@ module Morganite
       end
 
       if part.includes?(",")
-        return part.split(",").flat_map { |piece| parse_single(piece, range) }.uniq.sort
+        return part.split(",").flat_map { |piece| parse_single(piece, range) }.uniq!.sort!
       end
 
       parse_single(part, range)

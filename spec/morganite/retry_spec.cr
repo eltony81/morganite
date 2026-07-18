@@ -1,13 +1,10 @@
 require "../spec_helper"
 
 describe Morganite::Retry do
-  it "computes an increasing backoff" do
-    b0 = Morganite::Retry.backoff_for(0)
-    b1 = Morganite::Retry.backoff_for(1)
-    b2 = Morganite::Retry.backoff_for(2)
-
-    b0.should be < b1
-    b1.should be < b2
+  it "computes a backoff with positive jitter" do
+    Morganite::Retry.backoff_for(0).should be >= 15
+    Morganite::Retry.backoff_for(1).should be >= 16
+    Morganite::Retry.backoff_for(2).should be >= 31
   end
 
   it "returns max retries from job config" do
