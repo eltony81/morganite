@@ -8,12 +8,14 @@ class UniqueWhileExecutingWorker
   @@max_running = 0
   @@mutex = Mutex.new
   @@barrier = Channel(Nil).new(2)
+  @@started = Channel(Nil).new(2)
 
   def perform(args)
     @@mutex.lock
     @@running += 1
     @@max_running = Math.max(@@max_running, @@running)
     @@mutex.unlock
+    @@started.send(nil)
 
     @@barrier.receive
 
@@ -27,6 +29,18 @@ class UniqueWhileExecutingWorker
     @@running = 0
     @@max_running = 0
     @@mutex.unlock
+  end
+
+  # Blocks until at least one `perform` call has actually started (i.e. won
+  # the while_executing lock), instead of guessing with a fixed sleep — the
+  # lock-losing call resolves via the same Redis round trip and has settled
+  # by the time this returns, so this is enough to know both attempts are done.
+  def self.wait_for_start(timeout = 2.seconds)
+    select
+    when @@started.receive
+    when timeout(timeout)
+      raise "timed out waiting for UniqueWhileExecutingWorker to start"
+    end
   end
 
   def self.max_running
@@ -105,7 +119,7 @@ describe Morganite::UniqueJobs do
     spawn { Morganite::Processor.new.process(payload); done.send(nil) }
     spawn { Morganite::Processor.new.process(payload); done.send(nil) }
 
-    sleep 0.1.seconds
+    UniqueWhileExecutingWorker.wait_for_start
     UniqueWhileExecutingWorker.max_running.should eq(1)
 
     UniqueWhileExecutingWorker.release
