@@ -1,8 +1,9 @@
 version: "3.8"
 
-# Load test: enqueues a large batch of jobs and measures throughput/latency
-# to drain them with a real (separate-process) worker. Not part of CI —
-# run with scripts/run_load_test.sh.
+# Morganite side of scripts/run_benchmark.sh. Separate from
+# docker-compose.load.yml (which builds in debug mode via `crystal run`,
+# fine for correctness testing but not for a fair performance comparison
+# against Ruby): this one builds with `crystal build --release`.
 
 services:
   redis:
@@ -18,8 +19,8 @@ services:
   worker:
     build:
       context: .
-      dockerfile: examples/demo_app/Dockerfile
-    command: ["crystal", "run", "src/demo_app.cr", "--", "work"]
+      dockerfile: examples/demo_app/Dockerfile.release
+    command: ["/app/bin/demo_app", "work"]
     depends_on:
       - redis
     environment:
@@ -31,14 +32,13 @@ services:
   load:
     build:
       context: .
-      dockerfile: examples/demo_app/Dockerfile
-    command: ["crystal", "run", "src/load_test.cr"]
+      dockerfile: examples/demo_app/Dockerfile.release
+    command: ["/app/bin/load_test"]
     depends_on:
       - redis
-      - worker
     environment:
       REDIS_URL: redis://redis:6379/0
       QUEUE_NAME: load
       JOB_COUNT: "${JOB_COUNT:-20000}"
-      TIMEOUT_SECONDS: "${TIMEOUT_SECONDS:-120}"
+      TIMEOUT_SECONDS: "${TIMEOUT_SECONDS:-180}"
     restart: "no"

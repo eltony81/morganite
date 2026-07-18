@@ -303,8 +303,8 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 ### M8.5 Test end-to-end
 
 - [x] Suite di integrazione con Redis reale (docker-compose.e2e.yml)
-- [ ] Test di carico base (es. 10k job)
-- [ ] Benchmark vs Sidekiq (opzionale)
+- [x] Test di carico base (es. 10k job) — `scripts/run_load_test.sh`, testato fino a 100k job
+- [x] Benchmark vs Sidekiq (opzionale) — `scripts/run_benchmark.sh` (`examples/benchmark/sidekiq/`)
 
 ---
 

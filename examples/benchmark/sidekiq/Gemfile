@@ -1,0 +1,8 @@
+source "https://rubygems.org"
+
+gem "sidekiq", "~> 7.3"
+gem "redis", "~> 5.3"
+# Pinned: sidekiq 7.3's internal use of connection_pool isn't compatible with
+# connection_pool 3.x's TimedStack#pop signature change (bundler resolves to
+# 3.x by default since it's only a transitive dependency of sidekiq here).
+gem "connection_pool", "~> 2.4"

@@ -1,0 +1,39 @@
+version: "3.8"
+
+# Sidekiq counterpart to docker-compose.load.yml, for scripts/run_benchmark.sh.
+# Same job shape, same measurement approach (a dedicated connection pool
+# separate from the framework's own, incr + incrbyfloat per job), so the two
+# numbers are comparable. Not part of CI.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  worker:
+    build:
+      context: ./examples/benchmark/sidekiq
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CONCURRENCY: "${CONCURRENCY:-10}"
+    restart: "no"
+
+  bench:
+    build:
+      context: ./examples/benchmark/sidekiq
+    command: ["ruby", "bench.rb"]
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      JOB_COUNT: "${JOB_COUNT:-20000}"
+      TIMEOUT_SECONDS: "${TIMEOUT_SECONDS:-180}"
+    restart: "no"

@@ -1,0 +1,23 @@
+FROM crystallang/crystal:1.21-alpine
+
+WORKDIR /app
+
+# Install Morganite and its dependencies first (used as a local path dependency)
+COPY shard.yml shard.lock ./
+COPY src ./src
+RUN shards install --production
+
+# Copy the demo app and install its own shards
+COPY examples/demo_app/ ./examples/demo_app/
+WORKDIR /app/examples/demo_app
+RUN shards install --production
+
+# Used for benchmarking (scripts/run_benchmark.sh): `crystal run` (used by
+# the e2e/load/stress Dockerfile) skips LLVM optimizations for faster
+# iteration, which isn't a fair comparison against Ruby/Sidekiq (no
+# debug/release distinction to begin with).
+RUN mkdir -p /app/bin
+RUN crystal build --release -o /app/bin/demo_app src/demo_app.cr
+RUN crystal build --release -o /app/bin/load_test src/load_test.cr
+
+CMD ["/app/bin/demo_app", "work"]

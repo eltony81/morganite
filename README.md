@@ -270,6 +270,19 @@ Also not part of CI. Floods the queue with `JOB_COUNT` jobs (default 100,000) ac
 JOB_COUNT=200000 TIMEOUT_SECONDS=600 ./scripts/run_stress_test.sh
 ```
 
+## Benchmark against Sidekiq
+
+Also not part of CI. Runs the same job shape (a no-op job that records completion count and enqueue-to-processed latency via its own dedicated connection pool, `incr` + `incrbyfloat` per job) through Morganite and through [Sidekiq](https://sidekiq.org/) (`examples/benchmark/sidekiq/`) sequentially against a fresh Redis each, then prints throughput/latency for both.
+
+```bash
+./scripts/run_benchmark.sh
+
+# Override job count / concurrency / timeout:
+JOB_COUNT=100000 CONCURRENCY=20 TIMEOUT_SECONDS=300 ./scripts/run_benchmark.sh
+```
+
+The Morganite side builds with `crystal build --release` (`examples/demo_app/Dockerfile.release`) rather than `crystal run` (used by the e2e/load/stress suites for faster iteration) — `crystal run` skips LLVM optimizations, which would be a large, unfair handicap against Ruby (no such debug/release distinction to begin with).
+
 ## License
 
 MIT. See [LICENSE](./LICENSE).
