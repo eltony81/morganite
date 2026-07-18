@@ -8,5 +8,5 @@
 /tmp/
 /coverage/
 *.dwarf
-morganite
-morganite-web
+/morganite
+/morganite-web
