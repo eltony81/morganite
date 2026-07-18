@@ -3,6 +3,7 @@ require "./retry"
 require "./redis_connection"
 require "./metrics"
 require "./logger"
+require "./job_index"
 
 module Morganite
   class Discard < Exception
@@ -44,12 +45,14 @@ module Morganite
     def self.schedule_retry(redis : Redis::Client, job : Job) : Time
       next_retry_at = Retry.next_retry_at(job)
       redis.zadd(RETRY_KEY, next_retry_at.to_unix, job.to_json)
+      JobIndex.set(redis, RETRY_KEY, job)
       next_retry_at
     end
 
     def self.to_dead(redis : Redis::Client, job : Job)
       remove(redis, RETRY_KEY, job)
       redis.zadd(DEAD_KEY, Time.utc.to_unix, job.to_json)
+      JobIndex.set(redis, DEAD_KEY, job)
       trim_dead(redis)
     end
 
@@ -58,6 +61,8 @@ module Morganite
 
       unless config.dead_timeout_in_seconds == 0
         cutoff = Time.utc - config.dead_timeout_in_seconds.seconds
+        expired = redis.zrangebyscore(DEAD_KEY, "-inf", cutoff.to_unix.to_s)
+        deindex(redis, expired)
         redis.zremrangebyscore(DEAD_KEY, "-inf", cutoff.to_unix.to_s)
       end
 
@@ -65,6 +70,8 @@ module Morganite
       if max_jobs > 0
         dead_count = redis.zcard(DEAD_KEY)
         if dead_count.is_a?(Int) && dead_count > max_jobs
+          excess = redis.zrange(DEAD_KEY, 0, dead_count - max_jobs - 1)
+          deindex(redis, excess)
           redis.zremrangebyrank(DEAD_KEY, 0, dead_count - max_jobs - 1)
         end
       end
@@ -147,6 +154,10 @@ module Morganite
     end
 
     private def self.find_by_jid(redis : Redis::Client, key : String, jid : String) : Job?
+      JobIndex.find_in(redis, key, jid) || find_by_jid_scan(redis, key, jid)
+    end
+
+    private def self.find_by_jid_scan(redis : Redis::Client, key : String, jid : String) : Job?
       result = redis.zrange(key, 0, -1)
       return nil unless result.is_a?(Array)
 
@@ -158,8 +169,23 @@ module Morganite
       nil
     end
 
+    private def self.deindex(redis : Redis::Client, job_jsons)
+      return unless job_jsons.is_a?(Array)
+
+      jobs = job_jsons.compact_map do |item|
+        next unless item.is_a?(String)
+        begin
+          Job.from_json(item)
+        rescue ex : JSON::ParseException
+          nil
+        end
+      end
+      JobIndex.delete_all(redis, jobs)
+    end
+
     private def self.remove(redis : Redis::Client, key : String, job : Job)
       redis.zrem(key, job.to_json)
+      JobIndex.delete(redis, job.jid)
     end
   end
 end

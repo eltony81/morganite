@@ -2,6 +2,6 @@ require "./spec_helper"
 
 describe Morganite do
   it "has a version number" do
-    Morganite::VERSION.should eq("0.1.0")
+    Morganite::VERSION.should eq("0.2.1")
   end
 end

@@ -3,6 +3,7 @@ require "./job"
 require "./failures"
 require "./poller_script"
 require "./logger"
+require "./job_index"
 
 module Morganite
   class RetryPoller
@@ -45,6 +46,7 @@ module Morganite
         return if jobs.empty?
 
         moved = PollerScript.move_mature_jobs(redis, Failures::RETRY_KEY, jobs)
+        JobIndex.delete_all(redis, jobs)
         Logger.debug("retry poller moved #{moved} job(s) back to their queue") if moved > 0
       end
     end

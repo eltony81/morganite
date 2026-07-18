@@ -56,7 +56,7 @@ module Morganite
         window = worker.class.rate_limit_window
         if limit > 0 && !RateLimiter.allow?(job.class, limit, window)
           log.warn("rate limit exceeded for #{job.class}; rescheduling")
-          RateLimiter.reschedule(job_json, job.queue_key)
+          RateLimiter.reschedule(job_json, job.queue_key, job.class, window)
           return
         end
 

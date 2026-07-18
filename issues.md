@@ -3,11 +3,16 @@
 Analisi del codice sorgente (`src/morganite/`) alla ricerca di bug di correttezza,
 problemi di sicurezza e inefficienze. Riferimenti nel formato `file:riga`.
 
-> **Stato:** i punti 1-7, 9, 10 e la nota sui Workflow sono stati corretti (vedi
-> `git log`/`git diff`) e coperti da spec dedicate in `spec/morganite/`. Il punto
-> 8 (indice secondario per il lookup per `jid`) resta aperto: è una modifica
-> strutturale più ampia (toccherebbe `Client`, `Processor`, `Failures`) e non è
-> stata affrontata in questo giro di fix.
+> **Stato:** tutti i punti (1-10 e la nota sui Workflow) sono stati corretti e
+> coperti da spec dedicate in `spec/morganite/`. Il punto 8 è stato risolto
+> con un indice secondario (`Morganite::JobIndex`, `morganite:job_index`)
+> verificato via `ZSCORE` per evitare falsi positivi in caso di staleness,
+> con fallback alla scansione O(N) originale. In aggiunta, durante la verifica
+> con e2e/load/stress test reali è emerso e corretto un problema separato non
+> presente in questa lista originale: `RateLimiter.reschedule` rimetteva il
+> job in coda immediatamente invece di posticiparlo, causando un busy-loop
+> fino al reset della finestra (verificato: ha ridotto il volume di log della
+> stessa run e2e da ~212.000 a 616 righe).
 
 ## Bug di correttezza
 
@@ -155,8 +160,8 @@ vero istogramma Prometheus) invece di conservare ogni singolo valore osservato.
 
 ---
 
-### 8. Lookup per `jid` è O(n) con deserializzazione JSON completa — ⏳ non risolto in questo giro
-**File:** `src/morganite/failures.cr:118-128` (`find_by_jid`), `src/morganite/web.cr:330-355` (`find_job`)
+### 8. Lookup per `jid` è O(n) con deserializzazione JSON completa — ✅ risolto
+**File:** `src/morganite/failures.cr` (`find_by_jid`), `src/morganite/web.cr` (`find_job`)
 
 Ogni retry/delete di un job morto o in coda di retry, così come ogni
 visualizzazione del dettaglio job dalla dashboard, esegue una scansione
@@ -164,8 +169,16 @@ lineare (`ZRANGE key 0 -1`) dell'intero sorted set (fino a `dead_max_jobs`,
 default 10.000, per la coda dead; illimitato per retry/scheduled) e
 deserializza ogni elemento in JSON solo per confrontare il `jid`.
 
-**Fix suggerito:** mantenere un indice secondario (es. hash `jid -> posizione`
-o `jid -> job JSON`) per lookup O(1)/O(log n).
+**Fix applicato:** nuovo modulo `Morganite::JobIndex` (`morganite:job_index`,
+hash `jid -> {location, job JSON}`), scritto da `Failures.schedule_retry`/
+`to_dead`, da `Client.schedule` e da `RateLimiter.reschedule` (vedi punto 11),
+e ripulito da `Failures.remove`/`trim_dead` e dai poller quando spostano un
+job fuori da retry/scheduled. L'indice è un *hint*, non fonte di verità: ogni
+lettura verifica con `ZSCORE` che l'entry sia ancora valida prima di fidarsene,
+e ricade sulla scansione O(N) originale in caso di miss o staleness — quindi
+un'eventuale disallineamento non produce mai un falso positivo, solo la perdita
+temporanea del guadagno di performance per quel lookup. Le code normali
+(`morganite:queue:*`) restano volutamente non indicizzate.
 
 ---
 
@@ -203,6 +216,26 @@ senza mai risolversi.
 l'espressione possa effettivamente produrre un'occorrenza valida, oppure
 mettere in cache/loggare un warning e disabilitare il job dopo il primo
 fallimento di ricerca.
+
+---
+
+### 11. `RateLimiter.reschedule` faceva busy-loop invece di posticipare — ✅ risolto
+**File:** `src/morganite/rate_limiter.cr`
+
+Non presente nell'analisi originale — emerso rieseguendo l'e2e suite dopo il
+primo giro di fix. Un job che superava il rate limit veniva rimesso in coda
+**immediatamente** (`LPUSH`) invece che con un ritardo: se un worker lo
+ripescava prima del reset della finestra, falliva di nuovo il rate limit e
+veniva rimesso in coda di nuovo, in un ciclo che continuava fino allo scadere
+naturale della finestra. Non causava perdita di job, ma sprecava CPU/chiamate
+Redis e produceva una quantità di log sproporzionata: la stessa run e2e (12
+job in burst con `rate_limit 5, 10`) è passata da ~212.000 righe di log a 616.
+
+**Fix applicato:** il job rifiutato viene ora schedulato su
+`morganite:scheduled` con score = `now + TTL residuo della chiave di rate
+limit` (fallback alla durata della finestra se la chiave non ha TTL),
+riusando l'infrastruttura già esistente di `ScheduledPoller` invece di
+introdurre un secondo meccanismo di ritardo.
 
 ## Nota minore (non bug) — ✅ risolta
 

@@ -5,7 +5,16 @@ All notable changes to Morganite are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - Unreleased
+## [0.2.1] - Unreleased
+
+Two more fixes found by re-running the load/stress/e2e suites against 0.2.0, plus the one deferred item from the original `issues.md` pass.
+
+### Fixed
+
+- **`RateLimiter.reschedule`** pushed a rate-limited job straight back onto the queue (`LPUSH`), so a worker could pull it right back off before the window reset and busy-loop until it finally did — burning CPU/Redis calls and producing a disproportionate amount of log output (verified: the same e2e scenario dropped from ~212,000 log lines to 616). Now delays the job onto `morganite:scheduled` until the window is likely to have reset, reusing the existing `ScheduledPoller` machinery instead of a new delay mechanism.
+- **O(N) job-by-jid lookups** (`Failures.find_by_jid`, `web.cr#find_job`) scanned the entire retry/dead/scheduled sorted set on every retry/delete/dashboard-detail lookup. Added `Morganite::JobIndex` (`morganite:job_index`), a `jid -> {location, job}` hash verified via `ZSCORE` before being trusted (never a false positive) with the original O(N) scan kept as a fallback on a miss.
+
+## [0.2.0] - 2026-07-18
 
 A correctness/reliability/security pass across the whole runtime pipeline, driven by real end-to-end, concurrency, load and stress testing rather than inspection alone. See `issues.md` for the full bug writeups.
 
@@ -53,5 +62,6 @@ A correctness/reliability/security pass across the whole runtime pipeline, drive
 - Configuration from YAML/JSON files with environment-variable override.
 - Dockerfile multistage and `make docker-build` target.
 
+[0.2.1]: https://github.com/eltony81/morganite/releases/tag/v0.2.1
 [0.2.0]: https://github.com/eltony81/morganite/releases/tag/v0.2.0
 [0.1.0]: https://github.com/eltony81/morganite/releases/tag/v0.1.0

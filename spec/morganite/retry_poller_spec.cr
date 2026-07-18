@@ -16,6 +16,12 @@ describe Morganite::RetryPoller do
 
     redis.zcard(Morganite::Failures::RETRY_KEY).should eq(0)
     redis.llen("morganite:queue:default").should eq(1)
+
+    # Regression coverage for the JobIndex fix: the poller moves the job out
+    # of morganite:retry via a Lua script that doesn't know about the index,
+    # so the poller itself must deindex it — otherwise every job that's ever
+    # retried leaves a permanent stale entry behind.
+    redis.hget(Morganite::JobIndex::KEY, job.jid).should be_nil
   end
 
   it "keeps polling on later ticks after a Redis error" do

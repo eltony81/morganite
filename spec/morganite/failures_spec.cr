@@ -98,4 +98,35 @@ describe Morganite::Failures do
       Morganite.config.dead_max_jobs = original_max
     end
   end
+
+  it "deindexes jobs trimmed from the dead set by dead_max_jobs" do
+    # Regression coverage for the JobIndex fix: trim_dead removes members in
+    # bulk (zremrangebyrank), which doesn't tell us which jids were removed.
+    # If those index entries were left behind, find_any would (harmlessly,
+    # thanks to the ZSCORE staleness check) return nil for them anyway — but
+    # the index hash would grow forever for a long-running dead-letter-heavy
+    # process. Confirm the trimmed job's index entry is actually gone.
+    original_max = Morganite.config.dead_max_jobs
+    Morganite.config.dead_max_jobs = 1
+
+    begin
+      # to_dead scores by whole-second Unix timestamp; without a gap, both
+      # jobs could land on the same second and then sort by member (job
+      # JSON) bytes instead of insertion order, making which one gets
+      # trimmed unpredictable.
+      job1 = Morganite::Job.new(class: "FailingWorker", args: [JSON.parse("1")], retry: 0, retry_count: 0)
+      Morganite::Failures.handle(job1, Exception.new("boom"))
+      sleep 1.1.seconds
+
+      job2 = Morganite::Job.new(class: "FailingWorker", args: [JSON.parse("2")], retry: 0, retry_count: 0)
+      Morganite::Failures.handle(job2, Exception.new("boom"))
+
+      redis = Morganite::RedisConnection.new_client
+      redis.zcard(Morganite::Failures::DEAD_KEY).should eq(1)
+      redis.hget(Morganite::JobIndex::KEY, job1.jid).should be_nil
+      redis.hget(Morganite::JobIndex::KEY, job2.jid).should_not be_nil
+    ensure
+      Morganite.config.dead_max_jobs = original_max
+    end
+  end
 end

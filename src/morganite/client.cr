@@ -2,9 +2,12 @@ require "./job"
 require "./redis_connection"
 require "./client_middleware"
 require "./unique_jobs"
+require "./job_index"
 
 module Morganite
   module Client
+    SCHEDULED_KEY = "morganite:scheduled"
+
     UNIQUE_ENQUEUE_SCRIPT = <<-LUA
       local lock_key = KEYS[1]
       local lock_value = ARGV[1]
@@ -91,7 +94,8 @@ module Morganite
         acquired = false
         Morganite.pool.with do |redis|
           ClientMiddleware.invoke(job, -> {
-            acquired = unique_enqueue(redis, job, "morganite:scheduled", "scheduled", score: time.to_unix.to_s)
+            acquired = unique_enqueue(redis, job, SCHEDULED_KEY, "scheduled", score: time.to_unix.to_s)
+            JobIndex.set(redis, SCHEDULED_KEY, job) if acquired
             nil
           })
         end
@@ -100,8 +104,9 @@ module Morganite
         ClientMiddleware.invoke(job, -> {
           Morganite.pool.with do |redis|
             redis.pipeline do |pipe|
-              pipe.zadd("morganite:scheduled", time.to_unix, job.to_json)
+              pipe.zadd(SCHEDULED_KEY, time.to_unix, job.to_json)
             end
+            JobIndex.set(redis, SCHEDULED_KEY, job)
           end
           nil
         })

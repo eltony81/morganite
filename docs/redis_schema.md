@@ -14,9 +14,10 @@ Morganite uses Redis as its sole backend. This document describes the keys, list
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `morganite:scheduled` | Sorted set | Jobs scheduled for future execution. Score = Unix timestamp. |
+| `morganite:scheduled` | Sorted set | Jobs scheduled for future execution. Score = Unix timestamp. Also used to delay a rate-limited job until its window is likely to have reset, instead of pushing it straight back onto the queue. |
 | `morganite:retry` | Sorted set | Jobs waiting to be retried. Score = next retry Unix timestamp. |
 | `morganite:dead` | Sorted set | Jobs that exhausted all retries. Score = time the job became dead. |
+| `morganite:job_index` | Hash | Secondary index (`jid -> {location, job JSON}`) for O(1)/O(log N) job-by-jid lookups against the three sets above, instead of an O(N) `ZRANGE` + scan. A hint, not a source of truth: entries can go stale and are verified (`ZSCORE`) before being trusted; lookups fall back to the O(N) scan on a miss. See `Morganite::JobIndex`. |
 
 ## Unique jobs
 

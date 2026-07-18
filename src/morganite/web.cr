@@ -6,6 +6,7 @@ require "crypto/subtle"
 require "./redis_connection"
 require "./job"
 require "./failures"
+require "./job_index"
 require "./metrics"
 require "./logger"
 
@@ -366,6 +367,11 @@ module Morganite
 
     private def self.find_job(jid : String) : Tuple(Job?, String)
       Morganite.pool.with do |redis|
+        if found = JobIndex.find_any(redis, jid)
+          job, location = found
+          return {job, location.sub("morganite:", "")}
+        end
+
         RedisConnection.scan_keys(redis, "morganite:queue:*").each do |key|
           result = redis.lrange(key, 0, -1)
           next unless result.is_a?(Array)

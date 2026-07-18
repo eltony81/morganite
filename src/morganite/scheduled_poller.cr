@@ -2,6 +2,7 @@ require "./redis_connection"
 require "./job"
 require "./poller_script"
 require "./logger"
+require "./job_index"
 
 module Morganite
   class ScheduledPoller
@@ -46,6 +47,7 @@ module Morganite
         return if jobs.empty?
 
         moved = PollerScript.move_mature_jobs(redis, SCHEDULED_KEY, jobs)
+        JobIndex.delete_all(redis, jobs)
         Logger.debug("scheduled poller moved #{moved} job(s) to their queue") if moved > 0
       end
     end
