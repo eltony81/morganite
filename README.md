@@ -50,8 +50,17 @@ class MyWorker
 end
 
 # Enqueue a job
-MyWorker.perform_async(["hello", "world"])
+MyWorker.perform_async("hello", "world")
 ```
+
+## Running the processor
+
+```bash
+shards build morganite
+./bin/morganite
+```
+
+The processor fetches jobs from `morganite:queue:default` and executes them concurrently.
 
 ## Development
 
