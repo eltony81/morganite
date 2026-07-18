@@ -1,6 +1,6 @@
 # Morganite
 
-[![CI](https://github.com/morganite-cr/morganite/actions/workflows/ci.yml/badge.svg)](https://github.com/morganite-cr/morganite/actions/workflows/ci.yml)
+[![CI](https://github.com/eltony81/morganite/actions/workflows/ci.yml/badge.svg)](https://github.com/eltony81/morganite/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Morganite is a background job processing library for [Crystal](https://crystal-lang.org/), inspired by [Sidekiq](https://sidekiq.org/).
@@ -27,7 +27,7 @@ Add this to your `shard.yml`:
 ```yaml
 dependencies:
   morganite:
-    github: morganite-cr/morganite
+    github: eltony81/morganite
 ```
 
 Then run:
