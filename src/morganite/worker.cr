@@ -1,5 +1,6 @@
 require "./registry"
 require "./client"
+require "./cron"
 
 module Morganite
   module Worker
@@ -40,6 +41,10 @@ module Morganite
         # TODO: allow per-worker queue override (stored in class-level metadata)
         name
       end
+    end
+
+    macro cron(expression)
+      ::Morganite::Cron.register({{@type.name.stringify}}, {{expression}})
     end
 
     abstract def perform(args : Array(JSON::Any))

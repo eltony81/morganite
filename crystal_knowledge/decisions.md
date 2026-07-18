@@ -66,3 +66,13 @@ Usare questo file per registrare decisioni tecniche non ovvie.
   - Eccezione `Morganite::Discard` fa saltare retry/dead.
 - **Conseguenze**: retry automatico funzionante, dead queue accessibile via API/Client.
 - **Reversibilità**: alta – la logica è isolata in moduli dedicati.
+
+### 2026-07-18 – Ottimizzazioni future (pianificazione)
+
+- **Contesto**: suggerimento di ottimizzare allocazioni heap e uso del GC a fine sviluppo funzionale.
+- **Decisione**: non applicare ora, ma pianificare in backlog.
+  - Valutare conversione di `Morganite::Job` e altre entità immutabili da `class` a `struct`.
+  - Valutare introduzione di pool di oggetti per entità ad alto turnover (job temporanei, buffer JSON).
+  - Usare `crystal tool profile` e benchmark E2E per guidare le scelte.
+- **Conseguenze**: nessuna modifica immediata; evita ottimizzazioni premature.
+- **Reversibilità**: alta – le decisioni verranno prese con dati di profilazione.

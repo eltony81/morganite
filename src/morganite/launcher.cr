@@ -1,5 +1,6 @@
 require "./processor"
 require "./retry_poller"
+require "./scheduled_poller"
 
 module Morganite
   class Launcher
@@ -11,6 +12,7 @@ module Morganite
       @shutdown = Channel(Nil).new
       @done = Channel(Nil).new(@concurrency)
       @retry_poller = RetryPoller.new
+      @scheduled_poller = ScheduledPoller.new
     end
 
     def run
@@ -21,11 +23,13 @@ module Morganite
       end
 
       spawn { @retry_poller.run }
+      spawn { @scheduled_poller.run }
 
       @shutdown.receive
       @jobs.close
       @concurrency.times { @done.receive }
       @retry_poller.stop
+      @scheduled_poller.stop
     end
 
     def stop

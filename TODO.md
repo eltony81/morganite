@@ -323,3 +323,6 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 - [ ] Web UI in React/Vue separata
 - [ ] Integrazione con OpenTelemetry
 - [ ] Job encryption dei payload
+- [ ] Ottimizzazione allocazioni: valutare conversione di classi interne in `struct` (stack) dove immutabili/piccole (es. `Job`, `CronJob`)
+- [ ] Pool di oggetti Crystal per entità ricorrenti (job temporanei, wrapper args) per ridurre pressione sul GC
+- [ ] Profilazione con `crystal tool profile` o strumenti esterni per individuare hot spot di allocazione
