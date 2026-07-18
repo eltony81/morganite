@@ -18,6 +18,9 @@ lint:
 build:
 	crystal build src/morganite/cli.cr -o bin/morganite --release
 
+build-static:
+	./scripts/build_static.sh
+
 docker-build:
 	docker build -t morganite:latest .
 

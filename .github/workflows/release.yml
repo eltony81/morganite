@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    container:
+      # Kept in lockstep with ci.yml's Crystal pin — see the comment there
+      # for why this isn't 1.21 yet.
+      image: crystallang/crystal:1.20
+
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      MORGANITE_REDIS_URL: redis://redis:6379/15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: shards install
+
+      - name: Check formatting
+        run: crystal tool format --check
+
+      - name: Run linter
+        run: ./lib/ameba/bin/ameba
+
+      - name: Run tests
+        run: crystal spec
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+
+    container:
+      # Alpine (musl libc) is what makes `--static` produce a real static
+      # binary — the official Crystal Alpine image ships with the static
+      # variants of every C lib Crystal/its shards link against, which the
+      # glibc-based image does not.
+      image: crystallang/crystal:1.20-alpine
+
+    steps:
+      - name: Install git (base Alpine image doesn't include it)
+        run: apk add --no-cache git
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install dependencies (production only — skips ameba's dev-only postinstall build)
+        run: shards install --production
+
+      - name: Build static release binary
+        run: |
+          mkdir -p bin
+          crystal build src/morganite/cli.cr -o bin/morganite --release --static --no-debug
+
+      - name: Extract CHANGELOG section for this tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="[$version]" '
+            /^## \[/ { if (found) exit; found = ($0 ~ ver) ? 1 : 0; if (found) next }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "No CHANGELOG.md section found for $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: release_notes.md
+          files: bin/morganite
+          fail_on_unmatched_files: true

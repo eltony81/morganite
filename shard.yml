@@ -12,7 +12,7 @@ authors:
 
 license: MIT
 
-crystal: 1.21.0
+crystal: 1.20.2
 
 targets:
   morganite:

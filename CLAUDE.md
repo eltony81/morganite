@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Morganite is a Redis-backed background job processing library for Crystal, inspired by Sidekiq. Status: early development, APIs will change. Requires Crystal 1.21+ (see `shard.yml`) and a local Redis server.
+Morganite is a Redis-backed background job processing library for Crystal, inspired by Sidekiq. Requires Crystal 1.20+ (see `shard.yml`) and a local Redis server.
 
 ## Commands
 

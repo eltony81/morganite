@@ -7,8 +7,6 @@ Morganite is a background job processing library for [Crystal](https://crystal-l
 
 It uses **Redis** as a backend and provides a Ruby-like developer experience while leveraging Crystal’s compiled, fiber-based concurrency. Morganite is designed for production use with built-in observability, reliability patterns and a lightweight embedded dashboard.
 
-> **Status**: early development. APIs will change.
-
 ## Features
 
 - Worker-based job processing with Redis-backed queues
@@ -198,9 +196,23 @@ Run the image:
 docker run --rm -e MORGANITE_REDIS_URL=redis://host.docker.internal:6379/0 -p 7420:7420 morganite:latest
 ```
 
+## Releases
+
+Tagging a commit `vX.Y.Z` and pushing the tag triggers `.github/workflows/release.yml`,
+which runs the test suite, cross-compiles a statically-linked `morganite` binary
+(Alpine/musl, no runtime dependency on the host's libc), and publishes it as a
+GitHub Release with the matching `CHANGELOG.md` section as the release notes.
+
+To build the same static binary locally:
+
+```bash
+make build-static
+# or: ./scripts/build_static.sh path/to/output
+```
+
 ## Development
 
-You need Crystal 1.15+ and a local Redis server.
+You need Crystal 1.20+ and a local Redis server.
 
 ```bash
 # Install dependencies

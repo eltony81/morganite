@@ -11,7 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: crystallang/crystal:1.21
+      # Pinned to the 1.20 minor line, not 1.21: Crystal 1.21.0 (released
+      # 2026-07-16) added lexer changes (for %W) that ameba 1.6.4 — the
+      # latest stable release as of this writing — doesn't build against
+      # yet. Bump once ameba ships a 1.21-compatible release.
+      image: crystallang/crystal:1.20
 
     services:
       redis:
