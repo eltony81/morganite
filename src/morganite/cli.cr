@@ -174,4 +174,4 @@ module Morganite
   end
 end
 
-Morganite::CLI.run if PROGRAM_NAME == "morganite" || PROGRAM_NAME.ends_with?("/cli.cr")
+Morganite::CLI.run if File.basename(PROGRAM_NAME) == "morganite"

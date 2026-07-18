@@ -75,6 +75,19 @@ jobs:
           mkdir -p bin
           crystal build src/morganite/cli.cr -o bin/morganite --release --static --no-debug
 
+      - name: Smoke-test the binary
+        run: |
+          # Catches the class of bug where the binary builds fine but its
+          # CLI entrypoint never actually runs (silently does nothing, exit
+          # 0) — happened for real in v0.2.2 for any path-qualified
+          # invocation, not just PROGRAM_NAME literally "morganite".
+          output="$(./bin/morganite --version)"
+          echo "$output"
+          case "$output" in
+            Morganite\ *) ;;
+            *) echo "::error::morganite --version produced unexpected output: '$output'" >&2; exit 1 ;;
+          esac
+
       - name: Extract CHANGELOG section for this tag
         run: |
           version="${GITHUB_REF_NAME#v}"
