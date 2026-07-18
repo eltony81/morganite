@@ -26,10 +26,12 @@ module Morganite
     end
 
     private def poll
-      now = Time.utc
       Cron.jobs.each do |cron_job|
+        location = cron_job.location
+        now = Time.local(location)
         last_run = last_run_for(cron_job.key)
         from = last_run || (now - 1.minute)
+        from = from.in(location)
         next_time = cron_job.cron.next(from)
 
         if next_time <= now
@@ -55,16 +57,23 @@ module Morganite
   end
 
   module Cron
-    record Job, worker_name : String, expression : String, args : Array(JSON::Any), cron : CronExpression do
+    record Job, worker_name : String, expression : String, timezone : String?, args : Array(JSON::Any), cron : CronExpression do
       def key
         "#{worker_name}:#{expression}"
+      end
+
+      def location : Time::Location
+        if tz = timezone
+          return Time::Location.load(tz)
+        end
+        Time::Location::UTC
       end
     end
 
     @@jobs = [] of Job
 
-    def self.register(worker_name : String, expression : String, args = [] of JSON::Any)
-      @@jobs << Job.new(worker_name, expression, args, CronExpression.new(expression))
+    def self.register(worker_name : String, expression : String, timezone : String? = nil, args = [] of JSON::Any)
+      @@jobs << Job.new(worker_name, expression, timezone, args, CronExpression.new(expression))
     end
 
     def self.jobs

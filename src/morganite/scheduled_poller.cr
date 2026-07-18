@@ -1,5 +1,6 @@
 require "./redis_connection"
 require "./job"
+require "./poller_script"
 
 module Morganite
   class ScheduledPoller
@@ -30,13 +31,13 @@ module Morganite
         result = redis.zrangebyscore(SCHEDULED_KEY, "-inf", now.to_s)
         return unless result.is_a?(Array)
 
+        jobs = [] of Job
         result.each do |job_json|
           next unless job_json.is_a?(String)
-
-          job = Job.from_json(job_json)
-          redis.zrem(SCHEDULED_KEY, job_json)
-          redis.lpush(job.queue_key, job_json)
+          jobs << Job.from_json(job_json)
         end
+
+        PollerScript.move_mature_jobs(redis, SCHEDULED_KEY, jobs)
       end
     end
   end

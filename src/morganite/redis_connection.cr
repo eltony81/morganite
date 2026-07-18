@@ -21,7 +21,13 @@ module Morganite
     end
   end
 
-  class_getter pool : RedisPool do
-    RedisPool.new(Morganite.config.concurrency + 2) { RedisConnection.new_client }
+  @@pool : RedisPool? = nil
+
+  def self.pool : RedisPool
+    @@pool ||= RedisPool.new(Morganite.config.concurrency + 2) { RedisConnection.new_client }
+  end
+
+  def self.reset_pool!
+    @@pool = RedisPool.new(Morganite.config.concurrency + 2) { RedisConnection.new_client }
   end
 end

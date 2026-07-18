@@ -14,8 +14,12 @@ module Morganite
     property retry : Bool | Int32
     property retry_count : Int32
     property backtrace : Bool | Int32
+    property? dead : Bool
     property unique : String?
     property unique_for : Int32
+    property bid : String?
+    property wid : String?
+    property step_index : Int32
     property error_message : String?
     property error_backtrace : Array(String)?
     property failed_at : Float64?
@@ -27,8 +31,12 @@ module Morganite
       @queue : String = Morganite.config.queue,
       @retry : Bool | Int32 = true,
       @backtrace : Bool | Int32 = true,
+      @dead : Bool = true,
       @unique : String? = nil,
       @unique_for : Int32 = 300,
+      @bid : String? = nil,
+      @wid : String? = nil,
+      @step_index : Int32 = 0,
       @jid : String = UUID.random.to_s,
       @created_at : Float64 = Time.utc.to_unix_f,
       @enqueued_at : Float64? = nil,

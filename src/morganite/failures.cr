@@ -27,7 +27,9 @@ module Morganite
         schedule_retry(redis_client, job)
       else
         Metrics.increment("jobs_dead")
-        to_dead(redis_client, job)
+        if job.dead?
+          to_dead(redis_client, job)
+        end
       end
     end
 
@@ -38,6 +40,24 @@ module Morganite
     def self.to_dead(redis : Redis::Client, job : Job)
       remove(redis, RETRY_KEY, job)
       redis.zadd(DEAD_KEY, Time.utc.to_unix, job.to_json)
+      trim_dead(redis)
+    end
+
+    def self.trim_dead(redis : Redis::Client)
+      config = Morganite.config
+
+      unless config.dead_timeout_in_seconds == 0
+        cutoff = Time.utc - config.dead_timeout_in_seconds.seconds
+        redis.zremrangebyscore(DEAD_KEY, "-inf", cutoff.to_unix.to_s)
+      end
+
+      max_jobs = config.dead_max_jobs
+      if max_jobs > 0
+        dead_count = redis.zcard(DEAD_KEY)
+        if dead_count.is_a?(Int) && dead_count > max_jobs
+          redis.zremrangebyrank(DEAD_KEY, 0, dead_count - max_jobs - 1)
+        end
+      end
     end
 
     def self.retry_dead(jid : String, redis : Redis::Client? = nil) : Bool

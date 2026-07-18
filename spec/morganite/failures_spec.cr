@@ -61,4 +61,41 @@ describe Morganite::Failures do
     redis = Morganite::RedisConnection.new_client
     redis.zcard(Morganite::Failures::RETRY_KEY).should eq(0)
   end
+
+  it "trims old dead jobs based on timeout" do
+    original_timeout = Morganite.config.dead_timeout_in_seconds
+    Morganite.config.dead_timeout_in_seconds = 1
+
+    begin
+      old_job = Morganite::Job.new(class: "FailingWorker", args: [JSON.parse("1")], retry: 0, retry_count: 0)
+      Morganite::Failures.handle(old_job, Exception.new("boom"))
+
+      redis = Morganite::RedisConnection.new_client
+      sleep 1.1.seconds
+
+      new_job = Morganite::Job.new(class: "FailingWorker", args: [JSON.parse("2")], retry: 0, retry_count: 0)
+      Morganite::Failures.handle(new_job, Exception.new("boom"))
+
+      redis.zcard(Morganite::Failures::DEAD_KEY).should eq(1)
+    ensure
+      Morganite.config.dead_timeout_in_seconds = original_timeout
+    end
+  end
+
+  it "enforces dead_max_jobs limit" do
+    original_max = Morganite.config.dead_max_jobs
+    Morganite.config.dead_max_jobs = 2
+
+    begin
+      3.times do |i|
+        job = Morganite::Job.new(class: "FailingWorker", args: [JSON.parse("#{i}")], retry: 0, retry_count: 0)
+        Morganite::Failures.handle(job, Exception.new("boom"))
+      end
+
+      redis = Morganite::RedisConnection.new_client
+      redis.zcard(Morganite::Failures::DEAD_KEY).should eq(2)
+    ensure
+      Morganite.config.dead_max_jobs = original_max
+    end
+  end
 end

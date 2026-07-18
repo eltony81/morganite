@@ -26,4 +26,19 @@ describe Morganite::ClientMiddleware do
     restored.args.size.should eq(2)
     restored.args[1].as_s.should eq("tagged")
   end
+
+  it "adds metadata with MetadataClientMiddleware" do
+    metadata = {"request_id" => JSON.parse("\"req-123\"")}
+    Morganite::ClientMiddleware.use(Morganite::MetadataClientMiddleware.new(metadata))
+
+    Morganite::Client.enqueue("AddWorker", [JSON.parse("1")], "default")
+
+    redis = Morganite::RedisConnection.new_client
+    payload = redis.rpop("morganite:queue:default").as(String)
+    restored = Morganite::Job.from_json(payload)
+
+    restored.args.size.should eq(2)
+    restored.args[0].as_h["request_id"].as_s.should eq("req-123")
+    restored.args[1].as_i.should eq(1)
+  end
 end

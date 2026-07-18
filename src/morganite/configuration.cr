@@ -1,3 +1,7 @@
+require "random/secure"
+require "yaml"
+require "json"
+
 module Morganite
   class Configuration
     property redis_url : String
@@ -6,6 +10,12 @@ module Morganite
     property web_port : Int32
     property log_level : String
     property log_format : String
+    property dead_max_jobs : Int32
+    property dead_timeout_in_seconds : Int32
+    property web_username : String?
+    property web_password : String?
+    property secret_key : String
+    property statsd_addr : String?
 
     def initialize(
       @redis_url : String = ENV.fetch("MORGANITE_REDIS_URL", "redis://localhost:6379/0"),
@@ -14,9 +24,89 @@ module Morganite
       @web_port : Int32 = ENV.fetch("MORGANITE_WEB_PORT", "7420").to_i,
       @log_level : String = ENV.fetch("MORGANITE_LOG_LEVEL", "info"),
       @log_format : String = ENV.fetch("MORGANITE_LOG_FORMAT", "text"),
+      @dead_max_jobs : Int32 = ENV.fetch("MORGANITE_DEAD_MAX_JOBS", "10000").to_i,
+      @dead_timeout_in_seconds : Int32 = ENV.fetch("MORGANITE_DEAD_TIMEOUT_IN_SECONDS", "15552000").to_i,
+      @web_username : String? = ENV["MORGANITE_WEB_USERNAME"]?,
+      @web_password : String? = ENV["MORGANITE_WEB_PASSWORD"]?,
+      @secret_key : String = ENV.fetch("MORGANITE_SECRET_KEY", Random::Secure.hex(32)),
+      @statsd_addr : String? = ENV["MORGANITE_STATSD_ADDR"]?,
     )
+    end
+
+    def self.from_file(path : String) : Configuration
+      case File.extname(path).downcase
+      when ".yaml", ".yml"
+        from_yaml(path)
+      when ".json"
+        from_json(path)
+      else
+        raise ArgumentError.new("Unsupported config format: #{path}")
+      end
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    def self.from_yaml(path : String) : Configuration
+      content = File.read(path)
+      yaml = YAML.parse(content)
+      config = Configuration.new
+
+      config.redis_url = yaml["redis_url"].as_s if yaml["redis_url"]?
+      config.queue = yaml["queue"].as_s if yaml["queue"]?
+      config.concurrency = yaml["concurrency"].as_i if yaml["concurrency"]?
+      config.web_port = yaml["web_port"].as_i if yaml["web_port"]?
+      config.log_level = yaml["log_level"].as_s if yaml["log_level"]?
+      config.log_format = yaml["log_format"].as_s if yaml["log_format"]?
+      config.dead_max_jobs = yaml["dead_max_jobs"].as_i if yaml["dead_max_jobs"]?
+      config.dead_timeout_in_seconds = yaml["dead_timeout_in_seconds"].as_i if yaml["dead_timeout_in_seconds"]?
+      config.web_username = yaml["web_username"].as_s if yaml["web_username"]?
+      config.web_password = yaml["web_password"].as_s if yaml["web_password"]?
+      config.secret_key = yaml["secret_key"].as_s if yaml["secret_key"]?
+      config.statsd_addr = yaml["statsd_addr"].as_s if yaml["statsd_addr"]?
+
+      config
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    def self.from_json(path : String) : Configuration
+      content = File.read(path)
+      json = JSON.parse(content)
+      config = Configuration.new
+
+      config.redis_url = json["redis_url"].as_s if json["redis_url"]?
+      config.queue = json["queue"].as_s if json["queue"]?
+      config.concurrency = json["concurrency"].as_i if json["concurrency"]?
+      config.web_port = json["web_port"].as_i if json["web_port"]?
+      config.log_level = json["log_level"].as_s if json["log_level"]?
+      config.log_format = json["log_format"].as_s if json["log_format"]?
+      config.dead_max_jobs = json["dead_max_jobs"].as_i if json["dead_max_jobs"]?
+      config.dead_timeout_in_seconds = json["dead_timeout_in_seconds"].as_i if json["dead_timeout_in_seconds"]?
+      config.web_username = json["web_username"].as_s if json["web_username"]?
+      config.web_password = json["web_password"].as_s if json["web_password"]?
+      config.secret_key = json["secret_key"].as_s if json["secret_key"]?
+      config.statsd_addr = json["statsd_addr"].as_s if json["statsd_addr"]?
+
+      config
+    end
+
+    def validate!
+      raise ArgumentError.new("concurrency must be greater than 0") if @concurrency <= 0
+      raise ArgumentError.new("web_port must be between 1 and 65535") unless (1..65535).includes?(@web_port)
+      raise ArgumentError.new("redis_url cannot be empty") if @redis_url.empty?
+      raise ArgumentError.new("dead_max_jobs must be greater than or equal to 0") if @dead_max_jobs < 0
+      raise ArgumentError.new("dead_timeout_in_seconds must be greater than or equal to 0") if @dead_timeout_in_seconds < 0
+
+      if @web_username && !@web_password
+        raise ArgumentError.new("web_password is required when web_username is set")
+      end
     end
   end
 
-  class_property config : Configuration = Configuration.new
+  class_getter config : Configuration = Configuration.new
+
+  def self.config=(config : Configuration)
+    config.validate!
+    @@config = config
+    Logger.level = Logger::Level.parse(config.log_level.upcase)
+    Logger.json_format = config.log_format == "json"
+  end
 end

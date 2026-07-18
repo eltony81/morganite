@@ -6,6 +6,7 @@ Morganite.config = Morganite::Configuration.new(
   queue: "default",
   concurrency: 1
 )
+Morganite.reset_pool!
 
 Morganite::Logger.io = IO::Memory.new
 

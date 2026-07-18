@@ -1,4 +1,4 @@
-.PHONY: install test fmt lint build clean
+.PHONY: install test fmt lint build docker-build clean
 
 install:
 	shards install
@@ -13,10 +13,13 @@ fmt-check:
 	crystal tool format --check
 
 lint:
-	./lib/ameba/bin/ameba
+	crystal run bin/ameba.cr
 
 build:
-	crystal build src/morganite.cr -o bin/morganite --release
+	crystal build src/morganite/cli.cr -o bin/morganite --release
+
+docker-build:
+	docker build -t morganite:latest .
 
 clean:
 	rm -rf bin/morganite bin/morganite-web .shards lib

@@ -35,4 +35,14 @@ describe Morganite::CronExpression do
 
     next_time.should eq(Time.utc(2026, 7, 13, 13, 0, 0))
   end
+
+  it "preserves timezone in next occurrence" do
+    cron = Morganite::CronExpression.new("0 6 * * *")
+    rome = Time::Location.load("Europe/Rome")
+    from = Time.local(2026, 7, 13, 5, 0, 0, location: rome)
+    next_time = cron.next(from)
+
+    next_time.should eq(Time.local(2026, 7, 13, 6, 0, 0, location: rome))
+    next_time.location.to_s.should eq("Europe/Rome")
+  end
 end

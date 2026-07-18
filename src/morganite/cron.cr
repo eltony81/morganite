@@ -9,8 +9,9 @@ module Morganite
     end
 
     def next(from : Time = Time.utc) : Time
+      location = from.location
       t = from + 1.minute
-      t = Time.utc(t.year, t.month, t.day, t.hour, t.minute, 0)
+      t = Time.local(t.year, t.month, t.day, t.hour, t.minute, 0, location: location)
 
       # Search up to ~10 years of minutes
       5_257_600.times do

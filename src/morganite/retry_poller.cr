@@ -1,6 +1,7 @@
 require "./redis_connection"
 require "./job"
 require "./failures"
+require "./poller_script"
 
 module Morganite
   class RetryPoller
@@ -29,13 +30,13 @@ module Morganite
         result = redis.zrangebyscore(Failures::RETRY_KEY, "-inf", now.to_s)
         return unless result.is_a?(Array)
 
+        jobs = [] of Job
         result.each do |job_json|
           next unless job_json.is_a?(String)
-
-          job = Job.from_json(job_json)
-          redis.zrem(Failures::RETRY_KEY, job_json)
-          redis.lpush(job.queue_key, job_json)
+          jobs << Job.from_json(job_json)
         end
+
+        PollerScript.move_mature_jobs(redis, Failures::RETRY_KEY, jobs)
       end
     end
   end

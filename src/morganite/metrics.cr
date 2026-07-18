@@ -1,3 +1,5 @@
+require "./statsd"
+
 module Morganite
   module Metrics
     BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
@@ -10,6 +12,7 @@ module Morganite
       @@mutex.synchronize do
         @@counters[name] += value
       end
+      Statsd.increment("morganite.#{name}", value)
     end
 
     def self.observe(name : String, value : Float64)
@@ -17,6 +20,7 @@ module Morganite
         @@histograms[name] ||= [] of Float64
         @@histograms[name] << value
       end
+      Statsd.histogram("morganite.#{name}", value)
     end
 
     def self.to_prometheus : String

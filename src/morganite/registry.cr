@@ -12,6 +12,10 @@ module Morganite
       @@workers[name]? || raise MissingWorkerError.new("Unknown worker: #{name}")
     end
 
+    def self.fetch?(name : String) : WorkerFactory?
+      @@workers[name]?
+    end
+
     def self.clear
       @@workers.clear
     end

@@ -5,20 +5,24 @@
 
 Morganite is a background job processing library for [Crystal](https://crystal-lang.org/), inspired by [Sidekiq](https://sidekiq.org/).
 
-It uses **Redis** as a backend and aims to provide a Ruby-like developer experience while leveraging Crystal’s compiled, fiber-based concurrency.
+It uses **Redis** as a backend and provides a Ruby-like developer experience while leveraging Crystal’s compiled, fiber-based concurrency. Morganite is designed for production use with built-in observability, reliability patterns and a lightweight embedded dashboard.
 
 > **Status**: early development. APIs will change.
 
-## Features (planned)
+## Features
 
-- Worker-based job processing
-- Redis-backed queues
-- Retries with exponential backoff
-- Scheduled jobs
-- Dead-letter queue
-- Built-in Web UI (Kemal)
-- Middleware and lifecycle hooks
-- Monitoring and health checks
+- Worker-based job processing with Redis-backed queues
+- Retries with exponential backoff and jitter
+- Scheduled jobs and cron expressions
+- Dead-letter queue with manual retry/delete
+- Built-in Web UI (Kemal) with basic auth
+- Server and client middleware + lifecycle hooks
+- Health checks and Prometheus metrics
+- Unique jobs (`while_executing`, `until_executed`, `until_expired`)
+- Batches with success/complete callbacks
+- Per-worker rate limiting
+- Job workflows (chained jobs)
+- CLI with config file, env vars and inline execution
 
 ## Installation
 
@@ -82,6 +86,92 @@ shards build morganite
 
 The processor fetches jobs from `morganite:queue:default`, executes them concurrently, retries failed ones and schedules future/cron jobs.
 
+### CLI options
+
+```text
+-c, --config PATH       Load configuration from YAML or JSON file
+    --concurrency N     Number of concurrent workers
+    --queue NAME        Queue to process
+-v, --verbose           Enable debug logging
+    --web-only          Start only the Web UI
+    --inline 'WORKER ARGS'  Run a worker inline with JSON args
+    --version           Show version
+-h, --help              Show this help
+```
+
+Examples:
+
+```bash
+# Run with a config file
+./bin/morganite --config config/morganite.yml
+
+# Run a single queue with more workers
+./bin/morganite --queue critical --concurrency 10
+
+# Execute a worker inline for debugging
+./bin/morganite --inline 'MyWorker ["hello","world"]'
+
+# Start only the Web UI
+./bin/morganite --web-only
+```
+
+Because Morganite is a compiled Crystal binary, workers must be required at compile time. Create a small entrypoint file in your application:
+
+```crystal
+# src/my_app_worker.cr
+require "morganite"
+require "./workers/my_worker"
+
+Morganite.start
+Morganite.wait
+```
+
+Then build and run your own binary:
+
+```bash
+crystal build src/my_app_worker.cr -o bin/my_app_worker
+./bin/my_app_worker
+```
+
+## Configuration
+
+Morganite can be configured via environment variables or a YAML/JSON file. Environment variables override file values.
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MORGANITE_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
+| `MORGANITE_QUEUE` | `default` | Default queue name |
+| `MORGANITE_CONCURRENCY` | `5` | Number of concurrent workers |
+| `MORGANITE_WEB_PORT` | `7420` | Web UI port |
+| `MORGANITE_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `MORGANITE_LOG_FORMAT` | `text` | Log format (`text`, `json`) |
+| `MORGANITE_DEAD_MAX_JOBS` | `10000` | Max dead jobs to keep |
+| `MORGANITE_DEAD_TIMEOUT_IN_SECONDS` | `15552000` | Dead job retention |
+| `MORGANITE_WEB_USERNAME` | - | Web UI basic auth username |
+| `MORGANITE_WEB_PASSWORD` | - | Web UI basic auth password |
+| `MORGANITE_SECRET_KEY` | random | Secret key for CSRF |
+| `MORGANITE_STATSD_ADDR` | - | StatsD collector address |
+
+### Configuration file
+
+```yaml
+# config/morganite.yml
+redis_url: redis://localhost:6379/0
+queue: default
+concurrency: 5
+web_port: 7420
+log_level: info
+log_format: text
+```
+
+Load it with:
+
+```bash
+./bin/morganite --config config/morganite.yml
+```
+
 ## Web UI
 
 Morganite embeds a dashboard on port `7420` (configurable via `MORGANITE_WEB_PORT`):
@@ -92,6 +182,20 @@ Morganite embeds a dashboard on port `7420` (configurable via `MORGANITE_WEB_POR
 ```
 
 The dashboard shows queues, scheduled, retry and dead jobs, and allows you to delete or retry them.
+
+## Docker
+
+A multistage `Dockerfile` is provided in the repository root.
+
+```bash
+make docker-build
+```
+
+Run the image:
+
+```bash
+docker run --rm -e MORGANITE_REDIS_URL=redis://host.docker.internal:6379/0 -p 7420:7420 morganite:latest
+```
 
 ## Development
 

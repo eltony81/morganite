@@ -1,4 +1,5 @@
 .DS_Store
+/crystal_knowledge/
 /.shards/
 /lib/
 examples/demo_app/lib/

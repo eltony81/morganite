@@ -32,4 +32,22 @@ describe Morganite::Metrics do
     output = Morganite::Metrics.to_prometheus
     output.should be_empty
   end
+
+  it "sends metrics to statsd when configured" do
+    original_addr = Morganite.config.statsd_addr
+    Morganite.config.statsd_addr = "127.0.0.1:18125"
+
+    begin
+      server = UDPSocket.new
+      server.bind("127.0.0.1", 18_125)
+
+      Morganite::Metrics.increment("jobs_processed", 2)
+
+      message, _ = server.receive
+      message.should contain("morganite.jobs_processed:2|c")
+    ensure
+      Morganite.config.statsd_addr = original_addr
+      server.try(&.close) rescue nil
+    end
+  end
 end

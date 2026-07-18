@@ -26,9 +26,51 @@ class FailingWorker
   end
 end
 
+class WorkerMiddleware
+  include Morganite::ServerMiddleware
+
+  @@calls = [] of String
+
+  def self.calls
+    @@calls
+  end
+
+  def self.clear
+    @@calls.clear
+  end
+
+  def call(job, worker, queue, next_middleware)
+    @@calls << "worker:before"
+    next_middleware.call
+    @@calls << "worker:after"
+  end
+end
+
+class WorkerWithMiddleware
+  include Morganite::Worker
+
+  server_middleware WorkerMiddleware
+
+  @@processed = 0
+
+  def self.processed
+    @@processed
+  end
+
+  def self.clear
+    @@processed = 0
+  end
+
+  def perform(args)
+    @@processed += 1
+  end
+end
+
 describe Morganite::Processor do
   before_each do
     AddWorker.clear
+    WorkerWithMiddleware.clear
+    WorkerMiddleware.clear
   end
 
   it "processes a job from JSON" do
@@ -68,5 +110,17 @@ describe Morganite::Processor do
 
     redis = Morganite::RedisConnection.new_client
     redis.zcard(Morganite::Failures::DEAD_KEY).should eq(1)
+  end
+
+  it "runs worker-specific middleware" do
+    Morganite::Client.enqueue("WorkerWithMiddleware", [JSON.parse("1")], "default")
+    redis = Morganite::RedisConnection.new_client
+    payload = redis.rpop("morganite:queue:default").as(String)
+
+    processor = Morganite::Processor.new
+    processor.process(payload)
+
+    WorkerWithMiddleware.processed.should eq(1)
+    WorkerMiddleware.calls.should eq(["worker:before", "worker:after"])
   end
 end

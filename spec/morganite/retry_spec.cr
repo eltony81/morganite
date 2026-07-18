@@ -1,10 +1,26 @@
 require "../spec_helper"
 
+class CustomBackoffWorker
+  include Morganite::Worker
+
+  def retry_in(retry_count : Int32) : Int32
+    retry_count * 10
+  end
+
+  def perform(args)
+  end
+end
+
 describe Morganite::Retry do
   it "computes a backoff with positive jitter" do
-    Morganite::Retry.backoff_for(0).should be >= 15
-    Morganite::Retry.backoff_for(1).should be >= 16
-    Morganite::Retry.backoff_for(2).should be >= 31
+    Morganite::Retry.backoff_for(Morganite::Job.new(class: "W", retry_count: 0)).should be >= 15
+    Morganite::Retry.backoff_for(Morganite::Job.new(class: "W", retry_count: 1)).should be >= 16
+    Morganite::Retry.backoff_for(Morganite::Job.new(class: "W", retry_count: 2)).should be >= 31
+  end
+
+  it "allows a worker to override retry backoff" do
+    job = Morganite::Job.new(class: "CustomBackoffWorker", retry_count: 3)
+    Morganite::Retry.backoff_for(job).should eq(30)
   end
 
   it "returns max retries from job config" do

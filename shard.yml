@@ -3,15 +3,16 @@ version: 0.1.0
 
 description: |
   Morganite is a background job processing library for Crystal, inspired by Sidekiq.
-  It uses Redis as a backend and supports workers, retries, scheduled jobs,
-  dead-letter queue and a built-in Web UI.
+  It uses Redis as a backend and supports workers, retries with exponential backoff,
+  scheduled and cron jobs, a dead-letter queue, a built-in Web UI, middleware,
+  unique jobs, batches, rate limiting and workflows.
 
 authors:
   - Morganite Contributors
 
 license: MIT
 
-crystal: 1.15.0
+crystal: 1.21.0
 
 targets:
   morganite:

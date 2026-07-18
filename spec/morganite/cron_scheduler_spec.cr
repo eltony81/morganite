@@ -19,4 +19,11 @@ describe Morganite::CronScheduler do
     # scheduled instances instead of expecting exactly one.
     redis.zcard(Morganite::ScheduledPoller::SCHEDULED_KEY).as(Int64).should be >= 1
   end
+
+  it "supports a timezone for cron jobs" do
+    Morganite::Cron.register("FailingWorker", "* * * * *", "America/New_York")
+
+    job = Morganite::Cron.jobs.first
+    job.location.to_s.should eq("America/New_York")
+  end
 end

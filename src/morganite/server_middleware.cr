@@ -16,8 +16,8 @@ module Morganite
     def self.invoke(job : Job, worker : Worker, queue : String, on_done : -> Nil)
       chain = on_done
       @@middlewares.reverse_each do |middleware|
-        previous = chain
-        chain = -> { middleware.call(job, worker, queue, previous) }
+        previous = chain.as(-> Nil)
+        chain = -> { middleware.call(job, worker, queue, previous); nil }
       end
       chain.call
     end

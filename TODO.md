@@ -63,12 +63,12 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 - [x] Implementare `Morganite::Client` per enqueue su una coda Redis list (`lpush` su `morganite:queue:<name>`)
 - [x] Supportare `perform_async`, `perform_at`, `perform_in`
 - [x] Implementare la coda scheduled come sorted set `morganite:scheduled` con score timestamp
-- [ ] Aggiungere transaction/pipeline per ridurre round-trip Redis
+- [x] Aggiungere transaction/pipeline per ridurre round-trip Redis
 
 ### M1.3 Consumer (fetch + execute)
 
 - [x] Implementare fetch atomico da coda con `brpop`
-- [ ] Supportare `reliable fetch` con `rpoplpush` / `brpoplpush` verso una working list per evitare perdite
+- [x] Supportare `reliable fetch` con `rpoplpush` / `brpoplpush` verso una working list per evitare perdite
 - [x] Implementare worker pool basato su fiber con concurrency configurabile
 - [x] Eseguire il job invocando il worker registrato via `Morganite::Worker.included`
 - [x] Gestire graceful shutdown base (fermare fetch al segnale)
@@ -77,13 +77,13 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 - [x] Modulo `Morganite::Worker` con macro per definire `perform(args)`
 - [x] Registry runtime dei worker (Hash nome -> factory proc)
-- [ ] Supporto per `sidekiq_options` equivalenti (`queue`, `retry`, `backtrace`, `dead`)
+- [x] Supporto per `sidekiq_options` equivalenti (`queue`, `retry`, `backtrace`, `dead`)
 
 ### M1.5 Test
 
 - [x] Spec per enqueue/dequeue con Redis reale
 - [x] Spec per esecuzione worker
-- [ ] Spec per graceful shutdown
+- [x] Spec per graceful shutdown
 
 ---
 
@@ -95,13 +95,13 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 - [x] Implementare contatore `retry_count`
 - [x] Rienqueue in `morganite:retry` sorted set con score = `now + backoff(retry_count)`
 - [x] Implementare backoff esponenziale con jitter (default Sidekiq-like)
-- [ ] Permettere override del backoff a livello di job/worker
+- [x] Permettere override del backoff a livello di job/worker
 - [x] Limitare `max_retries` (default 25)
 
 ### M2.2 Dead letter queue
 
 - [x] Dopo max retries spostare il job in `morganite:dead` sorted set (score = now)
-- [ ] Implementare `dead_max_jobs` e `dead_timeout_in_seconds`
+- [x] Implementare `dead_max_jobs` e `dead_timeout_in_seconds`
 - [x] Permettere retry manuale dalla dead queue (sposta in `morganite:queue:<name>`)
 - [x] Permettere cancellazione dalla dead queue
 
@@ -125,7 +125,7 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 ### M3.1 Scheduled jobs
 
 - [x] Processo `scheduler` (`ScheduledPoller`) che sposta job da `morganite:scheduled` alla rispettiva `morganite:queue:<name>` quando il timestamp è maturo
-- [ ] Usare `zrangebyscore` + `zrem` atomica con Lua script o Redis transaction
+- [x] Usare `zrangebyscore` + `zrem` atomica con Lua script o Redis transaction
 - [x] Bilanciare frequenza polling vs latenza (configurabile, default 1s)
 
 ### M3.2 Retry poller
@@ -138,7 +138,7 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 - [x] Parser cron (`Morganite::CronExpression`) con supporto a `*`, `*/n`, liste, range
 - [x] Schedulare istanze di job ricorrenti in `morganite:scheduled`
 - [x] Persistenza dell’ultima esecuzione in Redis hash
-- [ ] Gestione timezone
+- [x] Gestione timezone
 
 ### M3.4 Test
 
@@ -162,8 +162,8 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 - [x] Vista riepilogo: code, job schedulati, retry, dead
 - [x] Vista coda: lista job, pulsante delete
 - [x] Vista scheduled/retry/dead: lista con pulsanti delete/retry
-- [ ] Vista processi: PID, hostname, concurrency, uptime, code ascoltate
-- [ ] Vista dettaglio job: payload, errori, backtrace
+- [x] Vista processi: PID, hostname, concurrency, uptime, code ascoltate
+- [x] Vista dettaglio job: payload, errori, backtrace
 
 ### M4.3 API per azioni
 
@@ -174,8 +174,8 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M4.4 Sicurezza
 
-- [ ] Supporto autenticazione base (username/password) opzionale
-- [ ] CSRF token per azioni destructive (se necessario)
+- [x] Supporto autenticazione base (username/password) opzionale
+- [x] CSRF token per azioni destructive (se necessario)
 
 ### M4.5 Test
 
@@ -190,13 +190,13 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 - [x] Definire `Morganite::ServerMiddleware` con `call(job, worker, queue, next_middleware)`
 - [x] Permettere registrazione globale
-- [ ] Permettere registrazione per worker specifico
-- [ ] Implementare esempi: logging, metrics, datadog
+- [x] Permettere registrazione per worker specifico
+- [x] Implementare esempi: logging, metrics, datadog
 
 ### M5.2 Middleware client
 
 - [x] Definire `Morganite::ClientMiddleware` per intercettare enqueue
-- [ ] Esempi pronti: logging, metadata, tracing
+- [x] Esempi pronti: logging, metadata, tracing
 
 ### M5.3 Hooks
 
@@ -224,7 +224,7 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 - [x] Contatori: jobs_processed, jobs_failed, jobs_retried, jobs_dead
 - [x] Tempo di esecuzione per job (histogram)
 - [x] Esportazione Prometheus `/metrics`
-- [ ] Esportazione statsd opzionale (backlog)
+- [x] Esportazione statsd opzionale (backlog)
 
 ### M6.3 Health check
 
@@ -249,24 +249,24 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M7.2 Batches (Bento-like)
 
-- [ ] Definire `Morganite::Batch` con descrizione, callback (success, complete)
-- [ ] Tracciamento contatori jobs totali/success/fail
-- [ ] Callback batch eseguiti quando i contatori raggiungono la soglia
+- [x] Definire `Morganite::Batch` con descrizione, callback (success, complete)
+- [x] Tracciamento contatori jobs totali/success/fail
+- [x] Callback batch eseguiti quando i contatori raggiungono la soglia
 
 ### M7.3 Rate limiting
 
-- [ ] Limitatore basato su Redis (token bucket / sliding window)
-- [ ] Configurazione per worker
+- [x] Limitatore basato su Redis (token bucket / sliding window)
+- [x] Configurazione per worker
 
 ### M7.4 Workflows
 
-- [ ] Supporto per job che dipendono da altri job (chained jobs)
+- [x] Supporto per job che dipendono da altri job (chained jobs)
 
 ### M7.5 Test
 
 - [x] Spec per unique jobs
-- [ ] Spec per batches
-- [ ] Spec per rate limiting
+- [x] Spec per batches
+- [x] Spec per rate limiting
 
 ---
 
@@ -274,30 +274,31 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M8.1 CLI
 
-- [ ] Comando `morganite` con opzioni: `--config`, `--concurrency`, `--queue`, `--require`, `--verbose`
-- [ ] Comando `morganite-web` per avviare solo la Web UI
-- [ ] Comando `morganite` per eseguire un job inline (debug)
+- [x] Comando `morganite` con opzioni: `--config`, `--concurrency`, `--queue`, `--verbose`
+- [x] Avvio solo Web UI (`--web-only`)
+- [x] Esecuzione inline di un worker (`--inline`)
+- [ ] `--require` runtime non implementabile in binario compilato; documentato come compilare un eseguibile custom
 - [ ] Hot reload dei worker in dev? (nice-to-have)
 
 ### M8.2 Configurazione
 
-- [ ] File di configurazione YAML/JSON
-- [ ] Variabili d’ambiente (`MORGANITE_REDIS_URL`, `MORGANITE_CONCURRENCY`, ecc.)
-- [ ] Validazione config all’avvio
+- [x] File di configurazione YAML/JSON
+- [x] Variabili d’ambiente (`MORGANITE_REDIS_URL`, `MORGANITE_CONCURRENCY`, ecc.)
+- [x] Validazione config all’avvio
 
 ### M8.3 Packaging
 
-- [ ] Dockerfile multistage per build leggera
+- [x] Dockerfile multistage per build leggera
 - [ ] Script per binary statico
 - [ ] Release su GitHub tramite CI
 - [ ] Shard pubblico o privato?
 
 ### M8.4 Documentazione
 
-- [ ] `README.md` con installazione, uso, API
-- [ ] `docs/` per guide avanzate
-- [ ] Documentare schema Redis (chiavi, sorted set, liste)
-- [ ] Changelog
+- [x] `README.md` con installazione, uso, API
+- [x] `docs/redis_schema.md`
+- [x] Documentare schema Redis (chiavi, sorted set, liste)
+- [x] Changelog
 
 ### M8.5 Test end-to-end
 
