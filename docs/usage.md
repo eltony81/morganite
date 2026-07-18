@@ -257,7 +257,39 @@ Morganite::Hooks.before_first_fetch { puts "First fetch" }
 Morganite::Hooks.after_last_fetch { puts "Last fetch" }
 ```
 
-## 13. Logging e metriche
+## 13. Unique jobs
+
+Puoi garantire che un job non venga enqueuato duplicato in base a classe, coda e argomenti:
+
+```crystal
+class IdempotentWorker
+  include Morganite::Worker
+
+  # Blocca finché il job precedente è in esecuzione
+  unique :while_executing, ttl: 60
+
+  # Altre strategie:
+  # unique :until_executed, ttl: 300
+  # unique :until_expired, ttl: 300
+
+  def perform(args)
+    # lavoro idempotente
+  end
+end
+```
+
+Strategie:
+
+- `while_executing`: due istanze uguali non possono girare contemporaneamente.
+- `until_executed`: il lock persiste fino al completamento con successo (sopravvive ai retry).
+- `until_expired`: il lock dura per `ttl` secondi; duplicati vengono rifiutati in quel periodo.
+
+```crystal
+# Enqueue manuale con strategia
+Morganite::Client.enqueue("IdempotentWorker", args, unique: "until_expired", unique_for: 300)
+```
+
+## 14. Logging e metriche
 
 ### Configurazione logging
 
