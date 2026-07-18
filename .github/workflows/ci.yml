@@ -25,7 +25,7 @@ jobs:
           - 6379:6379
 
     env:
-      REDIS_URL: redis://redis:6379/0
+      MORGANITE_REDIS_URL: redis://redis:6379/15
 
     steps:
       - name: Checkout
