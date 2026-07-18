@@ -188,24 +188,26 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M5.1 Middleware server
 
-- [ ] Definire `Morganite::ServerMiddleware` con `call(job, worker, queue, &block)`
-- [ ] Permettere registrazione globale e per worker
-- [ ] Implementare esempio: logging, metrics, datadog
+- [x] Definire `Morganite::ServerMiddleware` con `call(job, worker, queue, next_middleware)`
+- [x] Permettere registrazione globale
+- [ ] Permettere registrazione per worker specifico
+- [ ] Implementare esempi: logging, metrics, datadog
 
 ### M5.2 Middleware client
 
-- [ ] Definire `Morganite::ClientMiddleware` per intercettare enqueue
-- [ ] Esempio: aggiungere metadata, tracing
+- [x] Definire `Morganite::ClientMiddleware` per intercettare enqueue
+- [ ] Esempi pronti: logging, metadata, tracing
 
 ### M5.3 Hooks
 
-- [ ] `on_startup`, `on_shutdown`
-- [ ] `before_first_fetch`, `after_last_fetch`
+- [x] `on_startup`, `on_shutdown`
+- [x] `before_first_fetch`, `after_last_fetch`
 
 ### M5.4 Test
 
-- [ ] Spec per middleware che modifica/rifiuta job
-- [ ] Spec per hook lifecycle
+- [x] Spec per server middleware che avvolge l’esecuzione
+- [x] Spec per client middleware che modifica job
+- [x] Spec per hook lifecycle
 
 ---
 
@@ -213,26 +215,27 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M6.1 Logging
 
-- [ ] Logger strutturato con livelli (debug, info, warn, error)
-- [ ] Formato JSON opzionale per ambienti produttivi
-- [ ] Correlation ID/job JID nei log
+- [x] Logger strutturato con livelli (debug, info, warn, error)
+- [x] Formato JSON opzionale per ambienti produttivi
+- [x] Correlation ID/job JID nei log
 
 ### M6.2 Metriche
 
-- [ ] Contatori: jobs_processed, jobs_failed, jobs_retried, jobs_dead
-- [ ] Tempo di esecuzione per job (histogram)
-- [ ] Esportazione Prometheus `/metrics`
-- [ ] Esportazione statsd opzionale
+- [x] Contatori: jobs_processed, jobs_failed, jobs_retried, jobs_dead
+- [x] Tempo di esecuzione per job (histogram)
+- [x] Esportazione Prometheus `/metrics`
+- [ ] Esportazione statsd opzionale (backlog)
 
 ### M6.3 Health check
 
-- [ ] Endpoint `/health` per load balancer
-- [ ] Verifica connettività Redis
+- [x] Endpoint `/health` per load balancer
+- [x] Verifica connettività Redis
 
 ### M6.4 Test
 
-- [ ] Spec per metriche
-- [ ] Spec per health check
+- [x] Spec per logger
+- [x] Spec per metriche
+- [x] Spec per health check e endpoint `/metrics`
 
 ---
 

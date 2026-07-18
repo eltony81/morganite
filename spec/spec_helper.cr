@@ -7,6 +7,8 @@ Morganite.config = Morganite::Configuration.new(
   concurrency: 1
 )
 
+Morganite::Logger.io = IO::Memory.new
+
 def flush_redis
   redis = Morganite::RedisConnection.new_client
   redis.flushdb

@@ -100,3 +100,25 @@ Usare questo file per registrare decisioni tecniche non ovvie.
   - Route per dashboard, dettaglio coda, azioni delete/retry.
 - **Conseguenze**: nessuna dipendenza extra; UI minimale ma funzionante. Autenticazione e CSRF rimandati a future iterazioni.
 - **Reversibilità**: alta – le route e le view sono isolate in `Morganite::Web`.
+
+### 2026-07-18 – Middleware e hooks
+
+- **Contesto**: M5 richiede punti di estensione lato server, client e lifecycle.
+- **Decisione**:
+  - `Morganite::ServerMiddleware` con pattern chain-of-responsibility: ogni middleware riceve `job`, `worker`, `queue` e una proc `next_middleware`.
+  - `Morganite::ClientMiddleware` stesso pattern per intercettare `enqueue`/`schedule`.
+  - `Morganite::Hooks` con callback `on_startup`, `on_shutdown`, `before_first_fetch`, `after_last_fetch`.
+  - `Launcher` invoca `run_startup`, `run_before_first_fetch` (una sola volta tramite `Atomic`), `run_after_last_fetch` e `run_shutdown`.
+- **Conseguenze**: l’API usa `Proc(Nil)` esplicita invece di blocchi catturati per evitare un bug del compilatore Crystal 1.20.2 con `&block : -> Nil` in combinazione con metodi astratti.
+- **Reversibilità**: alta – middleware e hook sono opzionali e non influenzano il flusso base.
+
+### 2026-07-18 – Logging, metriche e health check
+
+- **Contesto**: M6 richiede osservabilità per produzione.
+- **Decisione**:
+  - `Morganite::Logger` custom con livelli, formato testo/JSON, `jid` e `correlation_id`. Output default su `STDERR`.
+  - `Morganite::Metrics` in-memory con `Mutex`, contatori e histogram; esportazione Prometheus su `/metrics`.
+  - Endpoint `/health` nel Web UI che pinga Redis e ritorna JSON.
+  - Configurazione tramite `MORGANITE_LOG_LEVEL` e `MORGANITE_LOG_FORMAT`.
+- **Conseguenze**: le metriche sono in-memory (non persistenti); se si avviano più processi Morganite, ognuno ha i propri contatori. Per produzione con più repliche serve un aggregatore esterno (Prometheus scrape per pod).
+- **Reversibilità**: media – i log sono centralizzati in `Logger` e le metriche in `Metrics`, facili da sostituire con librerie esterne.

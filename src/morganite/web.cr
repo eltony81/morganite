@@ -1,19 +1,25 @@
 require "kemal"
+require "json"
 require "./redis_connection"
 require "./job"
 require "./failures"
+require "./metrics"
 
 module Morganite
   module Web
+    @@routes_setup = false
+
     def self.start(port : Int32 = Morganite.config.web_port)
       Kemal.config.port = port
       Kemal.config.env = "production"
-      setup_routes
+      setup_routes unless @@routes_setup
       Kemal.run
     end
 
     def self.stop
       Kemal.stop
+    rescue
+      # Kemal may already be stopped
     end
 
     private def self.setup_routes
@@ -61,6 +67,18 @@ module Morganite
         jid = env.params.url["jid"]
         Morganite::Failures.delete_retry(jid)
         env.redirect("/morganite")
+      end
+
+      get "/health" do |env|
+        env.response.content_type = "application/json"
+        healthy = redis_healthy?
+        env.response.status_code = healthy ? 200 : 503
+        {status: healthy ? "ok" : "error"}.to_json
+      end
+
+      get "/metrics" do |env|
+        env.response.content_type = "text/plain; version=0.0.4"
+        Morganite::Metrics.to_prometheus
       end
     end
 
@@ -148,6 +166,15 @@ module Morganite
         str << yield
         str << "</body></html>"
       end
+    end
+
+    private def self.redis_healthy? : Bool
+      Morganite.pool.with do |redis|
+        result = redis.ping
+        result == "PONG"
+      end
+    rescue ex
+      false
     end
 
     private def self.queue_counts : Hash(String, Int64)

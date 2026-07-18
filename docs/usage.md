@@ -210,7 +210,90 @@ Dalla dashboard puoi:
 - Monitora la dead queue per individuare bug ricorrenti.
 - In produzione, proteggi la Web UI dietro autenticazione o firewall.
 
-## 12. Test
+## 12. Middleware e hooks
+
+### Server middleware
+
+Avvolge l’esecuzione di un job:
+
+```crystal
+class TimingMiddleware
+  include Morganite::ServerMiddleware
+
+  def call(job, worker, queue, next_middleware)
+    start = Time.monotonic
+    next_middleware.call
+    elapsed = Time.monotonic - start
+    puts "#{job.class} on #{queue} took #{elapsed.total_milliseconds}ms"
+  end
+end
+
+Morganite::ServerMiddleware.use(TimingMiddleware.new)
+```
+
+### Client middleware
+
+Intercetta gli enqueue:
+
+```crystal
+class MetadataMiddleware
+  include Morganite::ClientMiddleware
+
+  def call(job, next_middleware)
+    job.args << JSON.parse("\"processed-at:#{Time.utc.to_iso8601}\"")
+    next_middleware.call
+  end
+end
+
+Morganite::ClientMiddleware.use(MetadataMiddleware.new)
+```
+
+### Hooks
+
+```crystal
+Morganite::Hooks.on_startup { puts "Morganite started" }
+Morganite::Hooks.on_shutdown { puts "Morganite stopped" }
+Morganite::Hooks.before_first_fetch { puts "First fetch" }
+Morganite::Hooks.after_last_fetch { puts "Last fetch" }
+```
+
+## 13. Logging e metriche
+
+### Configurazione logging
+
+```bash
+export MORGANITE_LOG_LEVEL=info   # debug, info, warn, error
+export MORGANITE_LOG_FORMAT=json  # text (default) o json
+```
+
+Nel codice:
+
+```crystal
+Morganite::Logger.info("qualcosa di importante")
+ctx = Morganite::Logger.context(jid: job.jid, correlation_id: "req-123")
+ctx.info("start")
+```
+
+### Metriche Prometheus
+
+Il processor incrementa automaticamente:
+
+- `morganite_jobs_processed`
+- `morganite_jobs_failed`
+- `morganite_jobs_retried`
+- `morganite_jobs_dead`
+- `morganite_<WorkerClass>_duration_seconds` (histogram)
+
+Esponi su `http://localhost:7420/metrics`.
+
+### Health check
+
+```bash
+curl http://localhost:7420/health
+# {"status":"ok"}
+```
+
+## 14. Test
 
 Nei test usa un database Redis separato o esegui `FLUSHDB` in `before_each`:
 

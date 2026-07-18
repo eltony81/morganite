@@ -1,21 +1,28 @@
 require "./job"
 require "./redis_connection"
+require "./client_middleware"
 
 module Morganite
   module Client
     def self.enqueue(worker_name : String, args : Array(JSON::Any), queue : String = Morganite.config.queue) : Job
       job = build_job(worker_name, args, queue)
-      Morganite.pool.with do |redis|
-        redis.lpush(job.queue_key, job.to_json)
-      end
+      ClientMiddleware.invoke(job, -> {
+        Morganite.pool.with do |redis|
+          redis.lpush(job.queue_key, job.to_json)
+        end
+        nil
+      })
       job
     end
 
     def self.schedule(worker_name : String, time : Time, args : Array(JSON::Any), queue : String = Morganite.config.queue) : Job
       job = build_job(worker_name, args, queue)
-      Morganite.pool.with do |redis|
-        redis.zadd("morganite:scheduled", time.to_unix, job.to_json)
-      end
+      ClientMiddleware.invoke(job, -> {
+        Morganite.pool.with do |redis|
+          redis.zadd("morganite:scheduled", time.to_unix, job.to_json)
+        end
+        nil
+      })
       job
     end
 

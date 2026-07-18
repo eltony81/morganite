@@ -1,6 +1,7 @@
 require "./job"
 require "./retry"
 require "./redis_connection"
+require "./metrics"
 
 module Morganite
   class Discard < Exception
@@ -22,8 +23,10 @@ module Morganite
 
       if Retry.retry_job?(job)
         job.retried_at = Time.utc.to_unix_f
+        Metrics.increment("jobs_retried")
         schedule_retry(redis_client, job)
       else
+        Metrics.increment("jobs_dead")
         to_dead(redis_client, job)
       end
     end
