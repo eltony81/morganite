@@ -91,32 +91,32 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 ### M2.1 Retry
 
-- [ ] Catturare eccezioni in `perform`
-- [ ] Implementare contatore `retry_count`
-- [ ] Rienqueue in `morganite:retry` sorted set con score = `now + backoff(retry_count)`
-- [ ] Implementare backoff esponenziale con jitter (default Sidekiq-like)
+- [x] Catturare eccezioni in `perform`
+- [x] Implementare contatore `retry_count`
+- [x] Rienqueue in `morganite:retry` sorted set con score = `now + backoff(retry_count)`
+- [x] Implementare backoff esponenziale con jitter (default Sidekiq-like)
 - [ ] Permettere override del backoff a livello di job/worker
-- [ ] Limitare `max_retries` (default 25)
+- [x] Limitare `max_retries` (default 25)
 
 ### M2.2 Dead letter queue
 
-- [ ] Dopo max retries spostare il job in `morganite:dead` sorted set (score = now)
+- [x] Dopo max retries spostare il job in `morganite:dead` sorted set (score = now)
 - [ ] Implementare `dead_max_jobs` e `dead_timeout_in_seconds`
-- [ ] Permettere retry manuale dalla dead queue (sposta in `morganite:retry`)
-- [ ] Permettere cancellazione dalla dead queue
+- [x] Permettere retry manuale dalla dead queue (sposta in `morganite:queue:<name>`)
+- [x] Permettere cancellazione dalla dead queue
 
 ### M2.3 Gestione errori
 
-- [ ] Salvare `error_message`, `error_backtrace`, `failed_at`, `retried_at`
-- [ ] Opzione `backtrace` (true/false/numero linee)
-- [ ] Distinguere errori ritrattabili vs non ritrattabili (es. `Morganite::Discard`)
+- [x] Salvare `error_message`, `error_backtrace`, `failed_at`, `retried_at`
+- [x] Opzione `backtrace` (true/false/numero linee)
+- [x] Distinguere errori ritrattabili vs non ritrattabili (es. `Morganite::Discard`)
 
 ### M2.4 Test
 
-- [ ] Spec per retry automatico
-- [ ] Spec per dead job dopo esaurimento retry
-- [ ] Spec per backoff
-- [ ] Spec per retry manuale dalla dead queue
+- [x] Spec per retry automatico
+- [x] Spec per dead job dopo esaurimento retry
+- [x] Spec per backoff
+- [x] Spec per retry manuale dalla dead queue
 
 ---
 

@@ -18,6 +18,14 @@ class AddWorker
   end
 end
 
+class FailingWorker
+  include Morganite::Worker
+
+  def perform(args)
+    raise "boom"
+  end
+end
+
 describe Morganite::Processor do
   before_each do
     AddWorker.clear
@@ -36,12 +44,29 @@ describe Morganite::Processor do
     AddWorker.processed[0][1].as_i.should eq(2)
   end
 
-  it "raises MissingWorkerError for unknown workers" do
-    job = Morganite::Job.new(class: "UnknownWorker", args: [] of JSON::Any)
+  it "moves failed jobs to the retry queue" do
+    Morganite::Client.enqueue("FailingWorker", [JSON.parse("1")], "default")
+    redis = Morganite::RedisConnection.new_client
+    payload = redis.rpop("morganite:queue:default").as(String)
 
     processor = Morganite::Processor.new
-    expect_raises(Morganite::MissingWorkerError) do
-      processor.process(job.to_json)
-    end
+    processor.process(payload)
+
+    redis.zcard(Morganite::Failures::RETRY_KEY).should eq(1)
+  end
+
+  it "moves exhausted jobs to the dead queue" do
+    job = Morganite::Job.new(
+      class: "FailingWorker",
+      args: [JSON.parse("1")],
+      retry: 0,
+      retry_count: 0
+    )
+
+    processor = Morganite::Processor.new
+    processor.process(job.to_json)
+
+    redis = Morganite::RedisConnection.new_client
+    redis.zcard(Morganite::Failures::DEAD_KEY).should eq(1)
   end
 end

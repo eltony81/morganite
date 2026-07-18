@@ -43,3 +43,26 @@ Usare questo file per registrare decisioni tecniche non ovvie.
 - **Decisione**: usare prefisso `morganite:` per tutte le chiavi (es. `morganite:queue:<name>`, `morganite:scheduled`).
 - **Conseguenze**: nessun conflitto con Sidekiq; leggermente più verboso.
 - **Reversibilità**: alta – centralizzato nei metodi `queue_key` e nelle costanti.
+
+### 2026-07-18 – Refactoring concorrenza
+
+- **Contesto**: il task parallelo di review ha evidenziato anti-pattern: `while @running`, connessione Redis condivisa tra fiber, busy wait in `Morganite.wait`, nuova connessione per ogni enqueue.
+- **Decisione**:
+  - Introdotto `Morganite::RedisPool` basato su `Channel(Redis::Client)`.
+  - Refactor di `Launcher` con un fetcher dedicato in una fiber, worker pool che consuma da `Channel(String)`, shutdown via `@jobs.close` e sincronizzazione con `@done`.
+  - `RetryPoller` usa `select` con `@shutdown` e `timeout` per reagire immediatamente allo stop.
+  - `Client` usa `Morganite.pool.with`.
+  - `Morganite.wait` usa un `Channel(Nil)` invece di `loop { sleep }`.
+- **Conseguenze**: codice più idiomatico Crystal, shutdown graceful, nessuna connessione Redis condivisa in scrittura concorrente.
+- **Reversibilità**: media – il pool è una astrazione interna, sostituibile.
+
+### 2026-07-18 – Gestione errori e retry
+
+- **Contesto**: M2 richiede retry con backoff, dead queue e distinzione errori ritrattabili.
+- **Decisione**:
+  - `Morganite::Retry` calcola backoff Sidekiq-like e massimo retry.
+  - `Morganite::Failures` sposta job in `morganite:retry` o `morganite:dead`.
+  - `Morganite::RetryPoller` sposta job maturi da retry a queue.
+  - Eccezione `Morganite::Discard` fa saltare retry/dead.
+- **Conseguenze**: retry automatico funzionante, dead queue accessibile via API/Client.
+- **Reversibilità**: alta – la logica è isolata in moduli dedicati.

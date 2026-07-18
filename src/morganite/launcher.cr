@@ -1,49 +1,61 @@
 require "./processor"
-require "./redis_connection"
+require "./retry_poller"
 
 module Morganite
   class Launcher
-    @running : Bool
-
     def initialize(
       @queues : Array(String) = [Morganite.config.queue],
       @concurrency : Int32 = Morganite.config.concurrency,
     )
-      @redis = RedisConnection.new_client
-      @running = true
+      @jobs = Channel(String).new(@concurrency * 2)
       @shutdown = Channel(Nil).new
+      @done = Channel(Nil).new(@concurrency)
+      @retry_poller = RetryPoller.new
     end
 
     def run
+      spawn { fetch_loop }
+
       @concurrency.times do
-        spawn { fetch_loop }
+        spawn { worker_loop }
       end
 
+      spawn { @retry_poller.run }
+
       @shutdown.receive
-      @running = false
+      @jobs.close
+      @concurrency.times { @done.receive }
+      @retry_poller.stop
     end
 
     def stop
-      @shutdown.send(nil)
+      @shutdown.send(nil) rescue nil
     end
 
     private def fetch_loop
-      processor = Processor.new(@redis)
-
-      while @running
-        begin
+      Morganite.pool.with do |redis|
+        loop do
           queue_keys = @queues.map { |queue| "morganite:queue:#{queue}" }
-          result = @redis.brpop(queue_keys, timeout: 2)
-          next unless result
+          result = redis.brpop(queue_keys, timeout: 1)
+          break unless result
 
-          processor.process(result[1].as(String))
-        rescue ex : Socket::ConnectError | IO::Error
-          break unless @running
-          sleep 0.5.seconds
-        rescue ex : Exception
-          # Job failed; continue fetching. Retry/dead handling is M2.
+          @jobs.send(result[1].as(String))
         end
       end
+    ensure
+      @jobs.close
+    end
+
+    private def worker_loop
+      Morganite.pool.with do |redis|
+        processor = Processor.new(redis)
+
+        while job = @jobs.receive?
+          processor.process(job)
+        end
+      end
+    ensure
+      @done.send(nil)
     end
   end
 end

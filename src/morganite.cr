@@ -5,24 +5,28 @@ require "./morganite/job"
 require "./morganite/registry"
 require "./morganite/worker"
 require "./morganite/client"
+require "./morganite/retry"
+require "./morganite/failures"
+require "./morganite/retry_poller"
 require "./morganite/processor"
 require "./morganite/launcher"
 
 module Morganite
   @@launcher : Launcher? = nil
+  @@stopped = Channel(Nil).new
 
   def self.start
-    @@launcher = Launcher.new
-    if launcher = @@launcher
-      spawn { launcher.run }
-    end
+    launcher = Launcher.new
+    @@launcher = launcher
+    spawn { launcher.run }
   end
 
   def self.stop
     @@launcher.try(&.stop)
+    @@stopped.send(nil) rescue nil
   end
 
   def self.wait
-    loop { sleep 1.second }
+    @@stopped.receive
   end
 end

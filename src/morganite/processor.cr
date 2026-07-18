@@ -1,5 +1,6 @@
 require "./job"
 require "./registry"
+require "./failures"
 
 module Morganite
   class Processor
@@ -12,13 +13,11 @@ module Morganite
       worker = factory.call
       worker.perform(job.args)
     rescue ex : Exception
-      # TODO: M2 will implement retries, dead queue and error serialization.
-      STDERR.puts "Job failed: #{ex.class}: #{ex.message}"
-      raise ex
-    end
-
-    private def redis
-      @redis || RedisConnection.new_client
+      if parsed_job = job
+        Failures.handle(parsed_job, ex, @redis)
+      else
+        STDERR.puts "Failed to parse job: #{ex.message}"
+      end
     end
   end
 end
