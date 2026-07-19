@@ -39,6 +39,13 @@ module Morganite
       Statsd.histogram("morganite.#{name}", value)
     end
 
+    # JQCP Section 9.10 (GetStats): reads back a single counter's current
+    # value. `to_prometheus` already exposes all of them formatted as text;
+    # this is the same data as a plain Int64 for a JSON API.
+    def self.counter(name : String) : Int64
+      @@mutex.synchronize { @@counters[name] }
+    end
+
     def self.to_prometheus : String
       @@mutex.synchronize do
         io = IO::Memory.new

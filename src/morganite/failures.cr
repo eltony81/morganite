@@ -4,6 +4,8 @@ require "./redis_connection"
 require "./metrics"
 require "./logger"
 require "./job_index"
+require "./jqcp/job_state"
+require "./jqcp/lease"
 
 module Morganite
   class Discard < Exception
@@ -148,6 +150,91 @@ module Morganite
       true
     end
 
+    # JQCP Section 9.4 (GetJob) / Section 8.5 (KillJob): finds a Job
+    # regardless of which of the six states it's currently in. `JobIndex`
+    # only covers scheduled/retry/dead (a deliberate hot-path tradeoff, see
+    # `JobIndex`'s own comment); enqueued/active fall back to an O(N) scan,
+    # same rationale as `find_by_jid_scan` below — an operator lookup isn't
+    # the hot path `JobIndex` exists to speed up.
+    def self.find_any_state(redis : Redis::Client, jid : String) : {Job, String}?
+      if found = JobIndex.find_any(redis, jid)
+        return found
+      end
+
+      RedisConnection.scan_keys(redis, "#{Jqcp::QUEUE_PREFIX}*").each do |key|
+        next if key.ends_with?(":paused")
+        job = find_by_jid_scan(redis, key, jid, list: true)
+        return {job, key} if job
+      end
+
+      if found = Jqcp::Lease.find_anywhere(redis, jid)
+        owner, job = found
+        return {job, "#{Jqcp::PROCESSING_PREFIX}#{owner}"}
+      end
+
+      nil
+    end
+
+    # JQCP Section 8.4 (RetryJob): dead or retrying -> enqueued immediately,
+    # bypassing any remaining backoff; resets retry_count unless
+    # `reset_count` is false. Returns nil if `jid` isn't dead or retrying
+    # (Section 8.4: any other state is not a meaningful retry source).
+    def self.jqcp_retry(jid : String, reset_count : Bool, redis : Redis::Client? = nil) : Job?
+      redis_client = redis || RedisConnection.new_client
+
+      dead_job = find_by_jid(redis_client, DEAD_KEY, jid)
+      job = dead_job || find_by_jid(redis_client, RETRY_KEY, jid)
+      return nil unless job
+
+      # A ZREM against a key that doesn't hold the job is a harmless no-op,
+      # so removing from both is simpler than branching on which one it's
+      # actually in.
+      remove(redis_client, DEAD_KEY, job)
+      remove(redis_client, RETRY_KEY, job)
+
+      if reset_count
+        job.retry_count = 0
+        job.failed_at = nil
+        job.error_message = nil
+        job.error_type = nil
+        job.error_backtrace = nil
+        job.retried_at = nil
+      end
+      redis_client.lpush(job.queue_key, job.to_json)
+      job
+    end
+
+    # JQCP Section 8.5 (KillJob): forces any non-terminal Job straight to
+    # dead. Idempotent on an already-dead Job (returns it unchanged, per
+    # spec). Returns nil if `jid` isn't found in any non-terminal state
+    # (succeeded jobs aren't retained at all — Section 4.3 allows this —
+    # so they and truly-unknown jids are indistinguishable here, both
+    # correctly job_not_found).
+    def self.kill(jid : String, redis : Redis::Client? = nil) : Job?
+      redis_client = redis || RedisConnection.new_client
+
+      found = find_any_state(redis_client, jid)
+      return nil unless found
+
+      job, location = found
+      return job if location == DEAD_KEY
+
+      case location
+      when RETRY_KEY, SCHEDULED_KEY
+        remove(redis_client, location, job)
+      else
+        if location.starts_with?(Jqcp::PROCESSING_PREFIX)
+          owner = location.sub(Jqcp::PROCESSING_PREFIX, "")
+          Jqcp::Lease.release(redis_client, owner, job)
+        else
+          redis_client.lrem(location, 1, job.to_json)
+        end
+      end
+
+      to_dead(redis_client, job)
+      job
+    end
+
     private def self.truncate_backtrace(job : Job, backtrace : Array(String)?) : Array(String)?
       limit = backtrace_limit(job)
       return nil if limit == 0
@@ -174,8 +261,8 @@ module Morganite
       JobIndex.find_in(redis, key, jid) || find_by_jid_scan(redis, key, jid)
     end
 
-    private def self.find_by_jid_scan(redis : Redis::Client, key : String, jid : String) : Job?
-      result = redis.zrange(key, 0, -1)
+    private def self.find_by_jid_scan(redis : Redis::Client, key : String, jid : String, list : Bool = false) : Job?
+      result = list ? redis.lrange(key, 0, -1) : redis.zrange(key, 0, -1)
       return nil unless result.is_a?(Array)
 
       result.each do |job_json|
