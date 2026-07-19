@@ -5,6 +5,7 @@ require "./scheduled_poller"
 require "./cron_scheduler"
 require "./orphan_reaper"
 require "./jqcp/queue_control"
+require "./jqcp/lease_reaper"
 require "./web"
 require "./hooks"
 require "./logger"
@@ -27,6 +28,7 @@ module Morganite
       @scheduled_poller = ScheduledPoller.new
       @cron_scheduler = CronScheduler.new
       @orphan_reaper = OrphanReaper.new(poll_interval: Morganite.config.orphan_reaper_poll_interval_seconds.seconds)
+      @lease_reaper = Jqcp::LeaseReaper.new
       @before_first_fetch = Atomic(Int32).new(0)
       @processing_key = "morganite:processing:#{System.hostname}:#{Process.pid}"
       @heartbeat_key = "#{HEARTBEAT_PREFIX}#{System.hostname}:#{Process.pid}"
@@ -47,6 +49,7 @@ module Morganite
       spawn { @scheduled_poller.run }
       spawn { @cron_scheduler.run }
       spawn { @orphan_reaper.run }
+      spawn { @lease_reaper.run }
       spawn { Morganite::Web.start } if @start_web
 
       wait_for_shutdown_request
@@ -59,6 +62,7 @@ module Morganite
       @scheduled_poller.stop
       @cron_scheduler.stop
       @orphan_reaper.stop
+      @lease_reaper.stop
       Logger.info("shutdown: pollers stopped")
       Morganite::Web.stop if @start_web
       Hooks.run_shutdown

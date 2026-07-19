@@ -52,6 +52,29 @@ module Morganite
         redis.lrem(processing_key(wid), 1, job.to_json)
         untrack(redis, job)
       end
+
+      PROCESSING_PREFIX = "morganite:processing:"
+
+      # Scans every `morganite:processing:*` list for a Job matching `jid`,
+      # returning its owner (a wid, or `hostname:pid` for a native fiber
+      # worker) and the Job. Unlike `find`, the caller doesn't need to
+      # already know the owner — used by `LeaseReaper` (a `timeout_seconds`
+      # lease entry doesn't record who claimed it; nothing else needs to)
+      # and by the operator KillJob RPC's active-state case (Section 8.5).
+      def self.find_anywhere(redis : Redis::Client, jid : String) : {String, Job}?
+        RedisConnection.scan_keys(redis, "#{PROCESSING_PREFIX}*").each do |processing_key|
+          owner = processing_key.sub(PROCESSING_PREFIX, "")
+          result = redis.lrange(processing_key, 0, -1)
+          next unless result.is_a?(Array)
+
+          result.each do |item|
+            next unless item.is_a?(String)
+            job = Job.from_json(item) rescue next
+            return {owner, job} if job.jid == jid
+          end
+        end
+        nil
+      end
     end
   end
 end
