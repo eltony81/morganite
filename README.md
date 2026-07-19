@@ -194,6 +194,8 @@ export MORGANITE_JQCP_OPERATOR_READ_TOKEN=...
 export MORGANITE_JQCP_OPERATOR_WRITE_TOKEN=...
 ```
 
+See [`docs/jqcp_tutorial.md`](docs/jqcp_tutorial.md) for a hands-on walkthrough of all four JQCP roles (Broker, Producer, Worker, Operator) against a real running Broker.
+
 ## Docker
 
 A multistage `Dockerfile` is provided in the repository root.

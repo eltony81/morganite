@@ -3,6 +3,8 @@
 /.shards/
 /lib/
 examples/demo_app/lib/
+examples/jqcp_demo/lib/
+examples/jqcp_demo/bin/
 /bin/
 !/bin/.gitkeep
 !/bin/morganite

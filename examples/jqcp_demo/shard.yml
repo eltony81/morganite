@@ -1,0 +1,19 @@
+name: jqcp_demo
+version: 0.1.0
+
+description: |
+  Minimal Broker app for the JQCP tutorial (docs/jqcp_tutorial.md) — a
+  single registered worker class plus Morganite::CLI.run. Producer/Worker/
+  Operator are all played by plain curl calls in the tutorial itself, not
+  by code in this app.
+
+authors:
+  - Morganite Contributors
+
+license: MIT
+
+crystal: 1.15.0
+
+dependencies:
+  morganite:
+    path: ../..

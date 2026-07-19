@@ -16,6 +16,10 @@ explicitly say `-02` still applies unchanged (only the RenewLease-adjacent
 sections were renumbered, `8.4`-`8.8` → `8.5`-`8.9`, see below). `-02` is the
 draft this document tracks.
 
+Looking for a hands-on walkthrough instead of a reference? See
+[`docs/jqcp_tutorial.md`](jqcp_tutorial.md) — runs a real Broker and plays
+Producer/Worker/Operator against it with plain `curl`.
+
 ## Why JSON-over-HTTP, not gRPC
 
 JQCP's normative transport is gRPC over HTTP/2 with binary Protocol Buffers

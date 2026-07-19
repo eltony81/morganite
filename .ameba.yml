@@ -3,6 +3,7 @@
 
 Excluded:
   - examples/demo_app/lib/**/*.cr
+  - examples/jqcp_demo/lib/**/*.cr
 
 Documentation/DocumentationAdmonition:
   Enabled: false
