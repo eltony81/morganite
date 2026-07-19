@@ -155,7 +155,7 @@ crystal build src/my_app_worker.cr -o bin/my_app_worker --release
 ./bin/my_app_worker --queue critical --concurrency 10
 ```
 
-> Chiama `Morganite::CLI.run` esplicitamente (come sopra) invece di lasciare che scatti da sé: `cli.cr` si autoesegue solo quando il binario compilato si chiama esattamente `morganite` (per non autoeseguirsi quando `require`-ato dai test). Chiamandolo tu stesso funziona sempre, qualunque nome dai al binario.
+> `cli.cr` non si autoesegue mai: `Morganite::CLI.run` va sempre chiamato esplicitamente, come sopra. Funziona indipendentemente dal nome del binario e dall'ordine dei `require`, purché la chiamata a `CLI.run` avvenga dopo aver richiesto tutti i tuoi worker.
 
 In alternativa, se non ti serve la CLI (nessun flag da riga di comando), puoi avviare/fermare Morganite programmaticamente:
 

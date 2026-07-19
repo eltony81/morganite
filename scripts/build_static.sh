@@ -25,7 +25,7 @@ $CONTAINER_RUNTIME run --rm \
   -v "$(pwd):/app:Z" \
   -w /app \
   "$CRYSTAL_IMAGE" \
-  sh -c "shards install --production && crystal build src/morganite/cli.cr -o '$OUTPUT' --release --static --no-debug"
+  sh -c "shards install --production && crystal build src/morganite/cli_main.cr -o '$OUTPUT' --release --static --no-debug"
 
 echo "Done: $OUTPUT"
 file "$OUTPUT" 2>/dev/null || true

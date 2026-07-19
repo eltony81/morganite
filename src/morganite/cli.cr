@@ -173,5 +173,3 @@ module Morganite
     end
   end
 end
-
-Morganite::CLI.run if File.basename(PROGRAM_NAME) == "morganite"

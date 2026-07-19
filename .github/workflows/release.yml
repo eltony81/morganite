@@ -73,7 +73,7 @@ jobs:
       - name: Build static release binary
         run: |
           mkdir -p bin
-          crystal build src/morganite/cli.cr -o bin/morganite --release --static --no-debug
+          crystal build src/morganite/cli_main.cr -o bin/morganite --release --static --no-debug
 
       - name: Smoke-test the binary
         run: |

@@ -5,7 +5,17 @@ All notable changes to Morganite are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.3] - Unreleased
+## [0.2.4] - Unreleased
+
+### Added
+
+- Semantic conformance layer for JQCP (`draft-difluri-jqcp-01`, a gRPC-based job-queue control protocol): the full `JobWorker` (Hello/Enqueue/Fetch/Ack/Fail/Beat) and `JobOperator` (ListQueues/GetQueue/UpdateQueue/GetJob/RetryJob/KillJob/DeleteJob/ListJobs/ListWorkers/GetStats) services, exposed as JSON-over-HTTP under `/jqcp/v1/` (real gRPC transport isn't feasible in Crystal today — see `docs/jqcp_conformance.md`). New `Job` fields (`priority`, `timeout_seconds`, `idempotency_key`, `error_type`); `Jqcp::QueueControl` (pause + strict/weighted priority strategy, also now used by `Launcher`'s own queue selection); `Jqcp::LeaseReaper` (per-job Lease timeout, independent of `OrphanReaper`'s coarser process-level recovery); Bearer-token scoped auth (`jqcp:worker`, `jqcp:operator:read`, `jqcp:operator:write`).
+
+### Fixed
+
+- **`cli.cr`'s top-level auto-invoke guard could fire before a consuming app's worker files were even required.** It matched on `File.basename(PROGRAM_NAME) == "morganite"` (fixed in 0.2.3), but `require "morganite/cli"` positioned before other worker `require`s — exactly the order this project's own `docs/usage.md` recommended — combined with a binary literally named `morganite` (also produced by this project's own recommended Docker pattern) fired the guard at the `require` line itself, before any later class got a chance to register. Removed the guard entirely: `cli.cr` now only defines `Morganite::CLI`, never self-invokes. The shard's own `bin/morganite` target is now `src/morganite/cli_main.cr` (`require "./cli"; Morganite::CLI.run`), the same explicit-call pattern every consuming app should use.
+
+## [0.2.3] - 2026-07-18
 
 ### Fixed
 

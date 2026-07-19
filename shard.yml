@@ -16,7 +16,7 @@ crystal: 1.20.2
 
 targets:
   morganite:
-    main: src/morganite/cli.cr
+    main: src/morganite/cli_main.cr
 
 dependencies:
   redis:

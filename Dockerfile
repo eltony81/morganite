@@ -8,7 +8,7 @@ COPY shard.yml shard.lock ./
 RUN shards install --production
 
 COPY src ./src
-RUN mkdir -p bin && crystal build src/morganite/cli.cr -o bin/morganite --release
+RUN mkdir -p bin && crystal build src/morganite/cli_main.cr -o bin/morganite --release
 
 FROM debian:bookworm-slim AS runtime
 

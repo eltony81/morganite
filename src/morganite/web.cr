@@ -9,6 +9,8 @@ require "./failures"
 require "./job_index"
 require "./metrics"
 require "./logger"
+require "./jqcp/worker_api"
+require "./jqcp/operator_api"
 
 require "random/secure"
 require "base64"
@@ -123,6 +125,12 @@ module Morganite
         env.response.content_type = "text/plain; version=0.0.4"
         Morganite::Metrics.to_prometheus
       end
+
+      # JQCP (docs/jqcp_conformance.md): independent Bearer-token auth, not
+      # the dashboard's Basic Auth/CSRF above — `protected_path?` doesn't
+      # match /jqcp/*, so the `before_all` guard never applies to these.
+      Jqcp::WorkerApi.setup_routes
+      Jqcp::OperatorApi.setup_routes
     end
 
     private def self.render_dashboard

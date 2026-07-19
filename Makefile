@@ -16,7 +16,7 @@ lint:
 	crystal run bin/ameba.cr
 
 build:
-	crystal build src/morganite/cli.cr -o bin/morganite --release
+	crystal build src/morganite/cli_main.cr -o bin/morganite --release
 
 build-static:
 	./scripts/build_static.sh

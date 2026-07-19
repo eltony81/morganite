@@ -14,7 +14,7 @@ make test       # crystal spec (requires Redis; spec_helper uses redis://localho
 make fmt         # crystal tool format
 make fmt-check   # crystal tool format --check
 make lint        # crystal run bin/ameba.cr
-make build       # crystal build src/morganite/cli.cr -o bin/morganite --release
+make build       # crystal build src/morganite/cli_main.cr -o bin/morganite --release
 make docker-build
 make clean
 ```
@@ -71,7 +71,7 @@ See `docs/redis_schema.md` for the authoritative list. Everything is prefixed `m
 
 ### CLI and standalone binaries
 
-Because Crystal is compiled, consuming apps need their own entrypoint that `require`s Morganite plus their worker files, then calls `Morganite.start; Morganite.wait` (see README "Running the processor"). `src/morganite/cli.cr` is Morganite's own binary (`bin/morganite`) supporting `--config`, `--concurrency`, `--queue`, `--verbose`, `--web-only`, `--inline 'Worker [args]'` (for debugging a worker without the full processor), `--version`.
+Because Crystal is compiled, consuming apps need their own entrypoint that `require`s Morganite plus their worker files, then either calls `Morganite.start; Morganite.wait` directly or `require`s `morganite/cli` and calls `Morganite::CLI.run` for full flag support (see README "Running the processor"). `src/morganite/cli.cr` defines the `CLI` class (`--config`, `--concurrency`, `--queue`, `--verbose`, `--web-only`, `--inline 'Worker [args]'`, `--version`) but does **not** self-invoke — it used to via a `PROGRAM_NAME`-matching guard, which was removed because it fired on `require` alone whenever the binary happened to be named exactly `morganite`, before any later-required worker files got a chance to register (a real footgun given this project's own Docker/docs examples produce exactly that binary name). `src/morganite/cli_main.cr` (`require "./cli"; Morganite::CLI.run`) is the shard's own `bin/morganite` entrypoint and the pattern every consuming app's own entrypoint should follow — always call `CLI.run` explicitly, never rely on auto-invocation.
 
 ## Testing conventions
 
