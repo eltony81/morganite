@@ -4,6 +4,7 @@ require "./retry_poller"
 require "./scheduled_poller"
 require "./cron_scheduler"
 require "./orphan_reaper"
+require "./jqcp/queue_control"
 require "./web"
 require "./hooks"
 require "./logger"
@@ -85,7 +86,15 @@ module Morganite
 
           maybe_send_heartbeat(redis)
           trigger_before_first_fetch
-          queue_keys = @queues.map { |queue| "morganite:queue:#{queue}" }
+          queue_keys = Jqcp::QueueControl.select_queue_keys(redis, @queues)
+          if queue_keys.empty?
+            # Every queue is paused (Section 9.3): BRPOPLPUSH's own timeout
+            # normally paces this loop, but with nothing to block on here
+            # this would otherwise spin at full CPU until something resumes.
+            sleep 1.second
+            next
+          end
+
           if job_json = fetch_one(redis, queue_keys)
             begin
               @jobs.send(job_json)

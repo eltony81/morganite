@@ -1,8 +1,10 @@
+require "uuid"
 require "./job"
 require "./redis_connection"
 require "./client_middleware"
 require "./unique_jobs"
 require "./job_index"
+require "./jqcp/idempotency"
 
 module Morganite
   module Client
@@ -48,8 +50,17 @@ module Morganite
       bid : String? = nil,
       wid : String? = nil,
       step_index : Int32 = 0,
+      priority : Int32 = 0,
+      timeout_seconds : UInt32 = 0_u32,
+      idempotency_key : String? = nil,
+      jid : String? = nil,
     ) : Job?
-      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index)
+      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index, priority, timeout_seconds, idempotency_key, jid)
+
+      if job.idempotency_key
+        reserved = Morganite.pool.with { |redis| Jqcp::Idempotency.reserve(redis, job) }
+        return nil unless reserved
+      end
 
       if job.unique && job.unique != "while_executing"
         acquired = false
@@ -87,8 +98,17 @@ module Morganite
       bid : String? = nil,
       wid : String? = nil,
       step_index : Int32 = 0,
+      priority : Int32 = 0,
+      timeout_seconds : UInt32 = 0_u32,
+      idempotency_key : String? = nil,
+      jid : String? = nil,
     ) : Job?
-      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index)
+      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index, priority, timeout_seconds, idempotency_key, jid)
+
+      if job.idempotency_key
+        reserved = Morganite.pool.with { |redis| Jqcp::Idempotency.reserve(redis, job) }
+        return nil unless reserved
+      end
 
       if job.unique && job.unique != "while_executing"
         acquired = false
@@ -160,6 +180,10 @@ module Morganite
       bid = nil,
       wid = nil,
       step_index = 0,
+      priority = 0,
+      timeout_seconds = 0_u32,
+      idempotency_key = nil,
+      jid = nil,
     )
       Job.new(
         class: worker_name,
@@ -173,7 +197,11 @@ module Morganite
         bid: bid,
         wid: wid,
         step_index: step_index,
-        enqueued_at: Time.utc.to_unix_f
+        enqueued_at: Time.utc.to_unix_f,
+        priority: priority,
+        timeout_seconds: timeout_seconds,
+        idempotency_key: idempotency_key,
+        jid: jid || UUID.random.to_s
       )
     end
   end

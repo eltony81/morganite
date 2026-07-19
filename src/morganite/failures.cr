@@ -17,13 +17,30 @@ module Morganite
     def self.handle(job : Job, error : Exception, redis : Redis::Client? = nil)
       return if error.is_a?(Discard)
 
-      redis_client = redis || RedisConnection.new_client
+      record_failure(job, error.message, error.class.name, error.backtrace?)
+      transition_after_failure(job, redis || RedisConnection.new_client)
+    end
 
+    # JQCP Section 7.5/8.3 (Fail RPC): failure details are reported by an
+    # external Worker via JSON (errtype/message/backtrace), not raised as a
+    # Crystal Exception — same retry/dead-lettering logic as `handle`
+    # otherwise, including the job's own backtrace-capture policy
+    # (Section 4.2's `backtrace` sidekiq_options field still applies to a
+    # reported backtrace exactly as it would to a raised one).
+    def self.handle_external(job : Job, errtype : String?, message : String?, backtrace : Array(String)?, redis : Redis::Client? = nil)
+      record_failure(job, message, errtype, backtrace)
+      transition_after_failure(job, redis || RedisConnection.new_client)
+    end
+
+    private def self.record_failure(job : Job, message : String?, error_type : String?, raw_backtrace : Array(String)?)
       job.retry_count += 1
       job.failed_at ||= Time.utc.to_unix_f
-      job.error_message = error.message
-      job.error_backtrace = backtrace_for(job, error)
+      job.error_message = message
+      job.error_type = error_type
+      job.error_backtrace = truncate_backtrace(job, raw_backtrace)
+    end
 
+    private def self.transition_after_failure(job : Job, redis_client : Redis::Client)
       log = Logger.context(jid: job.jid)
 
       if Retry.retry_job?(job)
@@ -131,11 +148,11 @@ module Morganite
       true
     end
 
-    private def self.backtrace_for(job : Job, error : Exception) : Array(String)?
+    private def self.truncate_backtrace(job : Job, backtrace : Array(String)?) : Array(String)?
       limit = backtrace_limit(job)
       return nil if limit == 0
 
-      bt = error.backtrace? || [] of String
+      bt = backtrace || [] of String
       limit.nil? ? bt : bt.first(limit)
     end
 

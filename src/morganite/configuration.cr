@@ -18,6 +18,16 @@ module Morganite
     property statsd_addr : String?
     property orphan_reaper_poll_interval_seconds : Int32
 
+    # JQCP (docs/jqcp_conformance.md) Bearer-token scopes (Section 6). Unset
+    # = that scope's routes are disabled entirely (fail closed, not open).
+    # `jqcp_operator_write_token` also satisfies operator:read checks.
+    property jqcp_worker_token : String?
+    property jqcp_operator_read_token : String?
+    property jqcp_operator_write_token : String?
+    # How long the JQCP Fetch RPC's bounded-blocking poll (Section 7.3's
+    # non-streaming fallback) waits for a Job before returning empty.
+    property jqcp_fetch_timeout_seconds : Int32
+
     def initialize(
       @redis_url : String = ENV.fetch("MORGANITE_REDIS_URL", "redis://localhost:6379/0"),
       @queue : String = ENV.fetch("MORGANITE_QUEUE", "default"),
@@ -32,6 +42,10 @@ module Morganite
       @secret_key : String = ENV.fetch("MORGANITE_SECRET_KEY", Random::Secure.hex(32)),
       @statsd_addr : String? = ENV["MORGANITE_STATSD_ADDR"]?,
       @orphan_reaper_poll_interval_seconds : Int32 = ENV.fetch("MORGANITE_ORPHAN_REAPER_POLL_INTERVAL_SECONDS", "30").to_i,
+      @jqcp_worker_token : String? = ENV["MORGANITE_JQCP_WORKER_TOKEN"]?,
+      @jqcp_operator_read_token : String? = ENV["MORGANITE_JQCP_OPERATOR_READ_TOKEN"]?,
+      @jqcp_operator_write_token : String? = ENV["MORGANITE_JQCP_OPERATOR_WRITE_TOKEN"]?,
+      @jqcp_fetch_timeout_seconds : Int32 = ENV.fetch("MORGANITE_JQCP_FETCH_TIMEOUT_SECONDS", "5").to_i,
     )
     end
 
@@ -65,6 +79,10 @@ module Morganite
       config.secret_key = yaml["secret_key"].as_s if yaml["secret_key"]?
       config.statsd_addr = yaml["statsd_addr"].as_s if yaml["statsd_addr"]?
       config.orphan_reaper_poll_interval_seconds = yaml["orphan_reaper_poll_interval_seconds"].as_i if yaml["orphan_reaper_poll_interval_seconds"]?
+      config.jqcp_worker_token = yaml["jqcp_worker_token"].as_s if yaml["jqcp_worker_token"]?
+      config.jqcp_operator_read_token = yaml["jqcp_operator_read_token"].as_s if yaml["jqcp_operator_read_token"]?
+      config.jqcp_operator_write_token = yaml["jqcp_operator_write_token"].as_s if yaml["jqcp_operator_write_token"]?
+      config.jqcp_fetch_timeout_seconds = yaml["jqcp_fetch_timeout_seconds"].as_i if yaml["jqcp_fetch_timeout_seconds"]?
 
       config
     end
@@ -88,6 +106,10 @@ module Morganite
       config.secret_key = json["secret_key"].as_s if json["secret_key"]?
       config.statsd_addr = json["statsd_addr"].as_s if json["statsd_addr"]?
       config.orphan_reaper_poll_interval_seconds = json["orphan_reaper_poll_interval_seconds"].as_i if json["orphan_reaper_poll_interval_seconds"]?
+      config.jqcp_worker_token = json["jqcp_worker_token"].as_s if json["jqcp_worker_token"]?
+      config.jqcp_operator_read_token = json["jqcp_operator_read_token"].as_s if json["jqcp_operator_read_token"]?
+      config.jqcp_operator_write_token = json["jqcp_operator_write_token"].as_s if json["jqcp_operator_write_token"]?
+      config.jqcp_fetch_timeout_seconds = json["jqcp_fetch_timeout_seconds"].as_i if json["jqcp_fetch_timeout_seconds"]?
 
       config
     end
@@ -99,6 +121,7 @@ module Morganite
       raise ArgumentError.new("dead_max_jobs must be greater than or equal to 0") if @dead_max_jobs < 0
       raise ArgumentError.new("dead_timeout_in_seconds must be greater than or equal to 0") if @dead_timeout_in_seconds < 0
       raise ArgumentError.new("orphan_reaper_poll_interval_seconds must be greater than 0") if @orphan_reaper_poll_interval_seconds <= 0
+      raise ArgumentError.new("jqcp_fetch_timeout_seconds must be greater than 0") if @jqcp_fetch_timeout_seconds <= 0
 
       if @web_username && !@web_password
         raise ArgumentError.new("web_password is required when web_username is set")
