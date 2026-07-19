@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" width="900" height="220">
+  <defs>
+    <linearGradient id="gemFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f6d2c9"/>
+      <stop offset="45%" stop-color="#eeb0a6"/>
+      <stop offset="100%" stop-color="#d98a7e"/>
+    </linearGradient>
+    <linearGradient id="tableFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbe6e0"/>
+      <stop offset="100%" stop-color="#f0bcb0"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(10,10) scale(0.5)">
+    <polygon points="140,40 260,40 340,120 340,280 260,360 140,360 60,280 60,120"
+             fill="url(#gemFill)" stroke="#a85a4f" stroke-width="4" stroke-linejoin="round"/>
+    <polygon points="170,90 230,90 280,140 280,260 230,310 170,310 120,260 120,140"
+             fill="url(#tableFill)" stroke="#c17567" stroke-width="2.5" stroke-linejoin="round"/>
+    <g stroke="#c17567" stroke-width="2" stroke-linecap="round">
+      <line x1="140,40" x2="170,90"/>
+      <line x1="260,40" x2="230,90"/>
+      <line x1="340,120" x2="280,140"/>
+      <line x1="340,280" x2="280,260"/>
+      <line x1="260,360" x2="230,310"/>
+      <line x1="140,360" x2="170,310"/>
+      <line x1="60,280" x2="120,260"/>
+      <line x1="60,120" x2="120,140"/>
+    </g>
+    <g stroke="#d99184" stroke-width="1.5" stroke-opacity="0.7">
+      <line x1="170,90" x2="230,310"/>
+      <line x1="230,90" x2="170,310"/>
+    </g>
+    <polygon points="150,80 210,80 175,180 130,150" fill="url(#shine)"/>
+  </g>
+
+  <text x="230" y="135" font-family="Helvetica, Arial, sans-serif" font-size="90" font-weight="600" fill="#2b2b2b" letter-spacing="-1">morganite</text>
+</svg>

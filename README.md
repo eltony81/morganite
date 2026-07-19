@@ -1,4 +1,4 @@
-# Morganite
+<img src="docs/assets/logo-lockup.svg" alt="Morganite" width="420">
 
 [![CI](https://github.com/eltony81/morganite/actions/workflows/ci.yml/badge.svg)](https://github.com/eltony81/morganite/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -186,7 +186,7 @@ The dashboard shows queues, scheduled, retry and dead jobs, and allows you to de
 
 ## JQCP
 
-Morganite implements a semantic conformance layer for JQCP (`draft-difluri-jqcp-01`), a gRPC-based job-queue control protocol — exposed as JSON-over-HTTP under `/jqcp/v1/` (no viable Crystal gRPC-streaming stack exists yet; see [`docs/jqcp_conformance.md`](docs/jqcp_conformance.md) for the full rationale and endpoint reference). Enable it with:
+Morganite implements a semantic conformance layer for JQCP (`draft-difluri-jqcp-02`), a gRPC-based job-queue control protocol — exposed as JSON-over-HTTP under `/jqcp/v1/` (no viable Crystal gRPC-streaming stack exists yet; see [`docs/jqcp_conformance.md`](docs/jqcp_conformance.md) for the full rationale and endpoint reference). Enable it with:
 
 ```bash
 export MORGANITE_JQCP_WORKER_TOKEN=...
