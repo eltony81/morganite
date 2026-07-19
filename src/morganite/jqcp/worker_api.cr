@@ -151,7 +151,8 @@ module Morganite
           return Errors::Rejection.new("duplicate_idempotency_key", {"idempotency_key" => params.idempotency_key || ""})
         end
 
-        Jqcp.job_to_json(job, params.scheduled_at ? JobState::Scheduled : JobState::Enqueued).to_json
+        state = params.scheduled_at ? JobState::Scheduled : JobState::Enqueued
+        Jqcp.job_to_json(job, state, params.scheduled_at).to_json
       end
 
       private def self.parse_enqueue_params(job_field : JSON::Any) : EnqueueParams?

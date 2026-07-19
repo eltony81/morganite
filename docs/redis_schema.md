@@ -37,6 +37,19 @@ Morganite uses Redis as its sole backend. This document describes the keys, list
 |-----|------|-------------|
 | `morganite:workflow:<wid>` | Hash | Workflow metadata. Currently stores the `steps` key as a JSON array of step definitions. |
 
+## JQCP
+
+Semantic conformance layer for JQCP (`draft-difluri-jqcp-01`) — see `docs/jqcp_conformance.md`. Reuses every key above unchanged (a JQCP-claimed job is a job in `morganite:queue:*`/`morganite:processing:*`/etc. exactly like any other); the keys below are the only genuinely new state.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `morganite:processing:<wid>` / `morganite:processes:<wid>` | List / String | A JQCP Worker's claimed jobs and heartbeat, sharing the exact same key scheme as a native fiber worker's `<hostname>:<pid>` (see "Queues" above) — `OrphanReaper` recovers a dead JQCP worker's in-flight jobs with no JQCP-specific code. |
+| `morganite:jqcp:session:<wid>` | String (JSON) | Worker Session Lifecycle record (Section 7.7): `state`, `queues`, `concurrency`, `last_beat`. TTL'd and refreshed by Hello/Beat; expires along with the heartbeat above. |
+| `morganite:jqcp:leases` | Sorted set | Per-job Lease expiry (Section 8.8), score = Unix timestamp, member = job JSON. Only populated for jobs fetched with `timeout_seconds > 0`; polled by `LeaseReaper`. |
+| `morganite:jqcp:idem:<queue>:<key>` | String | Idempotency-key reservation (Section 4.4), value = holding job's `jid`. Set with `NX`; released (compare-and-delete) once the job leaves a non-terminal state. |
+| `morganite:queue:<name>:paused` | String | Presence = queue is paused (Section 9.3). Checked by `Launcher#fetch_one` and the JQCP Fetch handler alike — not JQCP-exclusive, just introduced by it. |
+| `morganite:jqcp:priority_strategy` | String (JSON) | Broker-default priority strategy (Section 10): `mode` (`strict`/`weighted`) and per-queue `weights`. |
+
 ## Notes
 
 - All keys use the `morganite:` prefix to avoid collisions.

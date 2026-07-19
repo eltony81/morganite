@@ -1,5 +1,6 @@
 require "../job"
 require "../retry"
+require "../redis_connection"
 
 module Morganite
   module Jqcp
@@ -52,8 +53,11 @@ module Morganite
     # Renders a Job as the JSON shape described in Table 1 / Appendix C's
     # canonical-JSON examples (Section 5.2: normative wire encoding would be
     # binary Protocol Buffers, but this Broker only exposes the JSON mapping,
-    # per Section 5.2's explicit allowance).
-    def self.job_to_json(job : Job, state : JobState) : JSON::Any
+    # per Section 5.2's explicit allowance). `scheduled_at` isn't stored on
+    # `Job` itself — it's the score of whichever ZSET (`morganite:scheduled`/
+    # `morganite:retry`) currently holds the job — so callers that have it
+    # (typically via `scheduled_at_for` below) pass it in explicitly.
+    def self.job_to_json(job : Job, state : JobState, scheduled_at : Time? = nil) : JSON::Any
       JSON::Any.new({
         "jid"            => JSON::Any.new(job.jid),
         "type"           => JSON::Any.new(job.class),
@@ -61,12 +65,26 @@ module Morganite
         "args"           => JSON::Any.new(job.args),
         "createdAt"      => JSON::Any.new(Time.unix_ms((job.created_at * 1000).to_i64).to_rfc3339),
         "enqueuedAt"     => timestamp_json(job.enqueued_at),
+        "scheduledAt"    => scheduled_at ? JSON::Any.new(scheduled_at.to_rfc3339) : JSON::Any.new(nil),
         "priority"       => JSON::Any.new(job.priority.to_i64),
         "retry"          => retry_policy_json(job),
         "timeoutSeconds" => JSON::Any.new(job.timeout_seconds.to_i64),
         "state"          => JSON::Any.new(state.to_jqcp_s),
         "lastError"      => last_error_json(job),
       })
+    end
+
+    # `location` must be `SCHEDULED_KEY` or `RETRY_KEY` (a ZSET) for this to
+    # return anything — a job in a LIST (queue/processing) or the DEAD ZSET
+    # has no meaningful scheduled_at. A single ZSCORE lookup, fine for a
+    # per-job GetJob/RetryJob/KillJob response; bulk listers (ListJobs) fetch
+    # scores directly via `ZRANGE ... WITHSCORES` instead of calling this
+    # once per job.
+    def self.scheduled_at_for(redis : Redis::Client, job : Job, location : String) : Time?
+      return nil unless location == SCHEDULED_KEY || location == RETRY_KEY
+
+      score = redis.zscore(location, job.to_json)
+      score.is_a?(Float) ? Time.unix(score.to_i64) : nil
     end
 
     private def self.retry_policy_json(job : Job) : JSON::Any

@@ -143,7 +143,8 @@ module Morganite
           next Errors::Rejection.new("job_not_found", {"jid" => jid}) unless found
 
           job, location = found
-          Jqcp.job_to_json(job, Jqcp.state_for(job, location)).to_json
+          scheduled_at = Jqcp.scheduled_at_for(redis, job, location)
+          Jqcp.job_to_json(job, Jqcp.state_for(job, location), scheduled_at).to_json
         end
       end
 
@@ -218,7 +219,7 @@ module Morganite
           next_token = offset + page.size < all_jobs.size ? (offset + page.size).to_s : ""
 
           {
-            "jobs"          => page.map { |job, state| Jqcp.job_to_json(job, state) },
+            "jobs"          => page.map { |job, state, scheduled_at| Jqcp.job_to_json(job, state, scheduled_at) },
             "nextPageToken" => next_token,
           }.to_json
         end
@@ -288,22 +289,25 @@ module Morganite
         JobState.parse?(raw.sub("JOB_STATE_", ""))
       end
 
-      private def self.jobs_for_state(redis : Redis::Client, state : JobState) : Array({Job, JobState})
+      private def self.jobs_for_state(redis : Redis::Client, state : JobState) : Array({Job, JobState, Time?})
+        result = [] of {Job, JobState, Time?}
+
         case state
         when JobState::Enqueued
-          scan_lists(redis, "#{QUEUE_PREFIX}*").map { |job| {job, JobState::Enqueued} }
+          scan_lists(redis, "#{QUEUE_PREFIX}*").each { |job| result << {job, JobState::Enqueued, nil} }
         when JobState::Active
-          scan_lists(redis, "#{PROCESSING_PREFIX}*").map { |job| {job, JobState::Active} }
+          scan_lists(redis, "#{PROCESSING_PREFIX}*").each { |job| result << {job, JobState::Active, nil} }
         when JobState::Scheduled
-          zset_jobs(redis, SCHEDULED_KEY).select { |job| job.retry_count == 0 }.map { |job| {job, JobState::Scheduled} }
+          zset_jobs(redis, SCHEDULED_KEY).select { |job, _| job.retry_count == 0 }
+            .each { |job, scheduled_at| result << {job, JobState::Scheduled, scheduled_at} }
         when JobState::Retrying
-          scheduled_retries = zset_jobs(redis, SCHEDULED_KEY).select { |job| job.retry_count > 0 }
-          (scheduled_retries + zset_jobs(redis, RETRY_KEY)).map { |job| {job, JobState::Retrying} }
+          scheduled_retries = zset_jobs(redis, SCHEDULED_KEY).select { |job, _| job.retry_count > 0 }
+          (scheduled_retries + zset_jobs(redis, RETRY_KEY)).each { |job, scheduled_at| result << {job, JobState::Retrying, scheduled_at} }
         when JobState::Dead
-          zset_jobs(redis, DEAD_KEY).map { |job| {job, JobState::Dead} }
-        else
-          [] of {Job, JobState}
+          zset_jobs(redis, DEAD_KEY).each { |job, _| result << {job, JobState::Dead, nil} }
         end
+
+        result
       end
 
       private def self.scan_lists(redis : Redis::Client, pattern : String) : Array(Job)
@@ -315,11 +319,21 @@ module Morganite
         end
       end
 
-      private def self.zset_jobs(redis : Redis::Client, key : String) : Array(Job)
-        result = redis.zrange(key, 0, -1)
-        return [] of Job unless result.is_a?(Array)
+      # WITHSCORES in one round trip rather than a ZSCORE per job — the
+      # score is each ZSET's activation/resumption timestamp
+      # (scheduled_at, Section 4.2), needed by ListJobs for SCHEDULED/RETRYING.
+      private def self.zset_jobs(redis : Redis::Client, key : String) : Array({Job, Time})
+        result = redis.zrange(key, 0, -1, with_scores: true)
+        return [] of {Job, Time} unless result.is_a?(Array)
 
-        result.compact_map { |item| item.is_a?(String) ? (Job.from_json(item) rescue nil) : nil }
+        pairs = [] of {Job, Time}
+        result.each_slice(2) do |pair|
+          member, score = pair
+          next unless member.is_a?(String) && score.is_a?(String)
+          job = Job.from_json(member) rescue next
+          pairs << {job, Time.unix(score.to_f64.to_i64)}
+        end
+        pairs
       end
 
       private def self.worker_json(redis : Redis::Client, wid : String, session : WorkerSession::Session)

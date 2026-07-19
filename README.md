@@ -184,6 +184,16 @@ Morganite embeds a dashboard on port `7420` (configurable via `MORGANITE_WEB_POR
 
 The dashboard shows queues, scheduled, retry and dead jobs, and allows you to delete or retry them.
 
+## JQCP
+
+Morganite implements a semantic conformance layer for JQCP (`draft-difluri-jqcp-01`), a gRPC-based job-queue control protocol — exposed as JSON-over-HTTP under `/jqcp/v1/` (no viable Crystal gRPC-streaming stack exists yet; see [`docs/jqcp_conformance.md`](docs/jqcp_conformance.md) for the full rationale and endpoint reference). Enable it with:
+
+```bash
+export MORGANITE_JQCP_WORKER_TOKEN=...
+export MORGANITE_JQCP_OPERATOR_READ_TOKEN=...
+export MORGANITE_JQCP_OPERATOR_WRITE_TOKEN=...
+```
+
 ## Docker
 
 A multistage `Dockerfile` is provided in the repository root.

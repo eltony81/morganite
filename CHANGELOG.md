@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Semantic conformance layer for JQCP (`draft-difluri-jqcp-01`, a gRPC-based job-queue control protocol): the full `JobWorker` (Hello/Enqueue/Fetch/Ack/Fail/Beat) and `JobOperator` (ListQueues/GetQueue/UpdateQueue/GetJob/RetryJob/KillJob/DeleteJob/ListJobs/ListWorkers/GetStats) services, exposed as JSON-over-HTTP under `/jqcp/v1/` (real gRPC transport isn't feasible in Crystal today — see `docs/jqcp_conformance.md`). New `Job` fields (`priority`, `timeout_seconds`, `idempotency_key`, `error_type`); `Jqcp::QueueControl` (pause + strict/weighted priority strategy, also now used by `Launcher`'s own queue selection); `Jqcp::LeaseReaper` (per-job Lease timeout, independent of `OrphanReaper`'s coarser process-level recovery); Bearer-token scoped auth (`jqcp:worker`, `jqcp:operator:read`, `jqcp:operator:write`).
+- `spec/morganite/jqcp/e2e_scenarios_spec.cr`: the protocol author's own end-to-end scenario catalogue (smoke test, read-only queries, happy path, transient-failure retry, retry exhaustion/dead-lettering, worker-crash Lease recovery, poison-pill kill, idempotency-key dedup) implemented and run against real Redis. Found and fixed a real gap in the process: `scheduledAt` (Table 1) was never rendered in Job JSON responses at all — `Jqcp.scheduled_at_for`/`ListJobs`' bulk `ZRANGE ... WITHSCORES` now supply it.
 
 ### Fixed
 

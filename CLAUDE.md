@@ -64,6 +64,7 @@ See `docs/redis_schema.md` for the authoritative list. Everything is prefixed `m
 - **Batches** (`batch.cr`) / **Workflows** (`workflow.cr`): metadata hashes keyed by bid/wid; `Processor` notifies them on job success/failure via `job.bid`/`job.wid` set at enqueue time.
 - **Rate limiting** (`rate_limiter.cr`): sliding window per worker class; `Processor` reschedules (re-enqueues) jobs that exceed the limit rather than failing them.
 - **Middleware**: two independent chains — `ServerMiddleware` (wraps job execution, `src/morganite/server_middleware.cr` + `middleware/*_middleware.cr`) and `ClientMiddleware` (wraps enqueue, `client_middleware.cr`). Built-in middlewares (logging, metrics, Datadog, tracing) are opt-in, not auto-registered.
+- **JQCP** (`src/morganite/jqcp/*`): semantic conformance layer for a gRPC-based job-queue control protocol, exposed as JSON-over-HTTP under `/jqcp/v1/` on the same Kemal server as the dashboard (mounted from `web.cr`) — see `docs/jqcp_conformance.md` for the full rationale (no viable Crystal gRPC-streaming stack) and endpoint reference. Reuses the core Redis structures directly (a JQCP-claimed job is a job in `morganite:processing:<wid>`, same scheme as a native fiber worker's `<hostname>:<pid>`, so `OrphanReaper` covers a dead JQCP worker for free); `Jqcp::LeaseReaper` adds the one genuinely new mechanism, per-job Lease timeout independent of process health.
 
 ### Configuration
 
