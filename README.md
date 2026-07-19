@@ -40,6 +40,8 @@ shards install
 
 ## Usage
 
+> For a complete walkthrough of every feature — batches, workflows, rate limiting, middleware, unique jobs, Docker deploy — see [`docs/usage.md`](docs/usage.md) (in Italian).
+
 ```crystal
 require "morganite"
 
