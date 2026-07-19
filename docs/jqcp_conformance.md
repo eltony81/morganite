@@ -103,8 +103,18 @@ JQCP streaming semantics: eligible Jobs are pushed to the worker the instant
 they're claimed, instead of the worker paying up to one poll interval of
 latency.
 
-**Enabling it** — five env vars (or the equivalent `Configuration` fields /
-YAML keys), all off by default:
+**Enabling it** requires two separate opt-ins, because `quic.cr`'s TLS
+bindings need OpenSSL's *native* QUIC API (`SSL_set_quic_tls_cbs` and
+friends, added in OpenSSL 3.5) — linking it unconditionally broke `crystal
+spec`/`crystal build` on CI's `crystallang/crystal:1.20` image, which ships
+an older OpenSSL:
+
+1. **Compile-time**: build with `-Dmorganite_http3` (`make build-http3`).
+   Without this flag — the default, including this shard's own `make
+   build`/CI — `quic.cr` isn't required at all and the resulting binary has
+   no OpenSSL-3.5 dependency. Requires OpenSSL >= 3.5 on the build machine.
+2. **Runtime**: five env vars (or the equivalent `Configuration` fields /
+   YAML keys), all off by default:
 
 | Env var | Default | Purpose |
 | --- | --- | --- |

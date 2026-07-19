@@ -22,7 +22,16 @@ require "./morganite/jqcp/lease"
 require "./morganite/jqcp/lease_reaper"
 require "./morganite/jqcp/worker_api"
 require "./morganite/jqcp/operator_api"
-require "./morganite/jqcp/http3_fetch_server"
+# Experimental HTTP/3 Fetch (docs/jqcp_conformance.md) — compile-time opt-in
+# via `-Dmorganite_http3`, not just the runtime `jqcp_http3_enabled` flag,
+# because `quic.cr`'s TLS bindings need OpenSSL's native QUIC API (3.5+):
+# linking it unconditionally broke `crystal spec`/`crystal build` on CI's
+# `crystallang/crystal:1.20` image, which ships an older OpenSSL. Keeping
+# it out of the default require graph means the base shard has no such
+# constraint; only consumers who explicitly opt in take it on.
+{% if flag?(:morganite_http3) %}
+  require "./morganite/jqcp/http3_fetch_server"
+{% end %}
 require "./morganite/retry_poller"
 require "./morganite/scheduled_poller"
 require "./morganite/cron"
