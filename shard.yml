@@ -25,6 +25,9 @@ dependencies:
   kemal:
     github: kemalcr/kemal
     version: ~> 1.11.0
+  quic:
+    github: eltony81/quic.cr
+    version: ~> 0.11.0
 
 development_dependencies:
   ameba:

@@ -150,7 +150,8 @@ module Morganite
       true
     end
 
-    # JQCP Section 9.4 (GetJob) / Section 8.5 (KillJob): finds a Job
+    # JQCP Section 9.4 (GetJob) / Section 8.6 (KillJob, draft-difluri-jqcp-02
+    # numbering; was 8.5 in -01): finds a Job
     # regardless of which of the six states it's currently in. `JobIndex`
     # only covers scheduled/retry/dead (a deliberate hot-path tradeoff, see
     # `JobIndex`'s own comment); enqueued/active fall back to an O(N) scan,
@@ -175,10 +176,11 @@ module Morganite
       nil
     end
 
-    # JQCP Section 8.4 (RetryJob): dead or retrying -> enqueued immediately,
-    # bypassing any remaining backoff; resets retry_count unless
-    # `reset_count` is false. Returns nil if `jid` isn't dead or retrying
-    # (Section 8.4: any other state is not a meaningful retry source).
+    # JQCP Section 8.5 (RetryJob, draft-difluri-jqcp-02 numbering; was 8.4 in
+    # -01): dead or retrying -> enqueued immediately, bypassing any remaining
+    # backoff; resets retry_count unless `reset_count` is false. Returns nil
+    # if `jid` isn't dead or retrying (any other state is not a meaningful
+    # retry source).
     def self.jqcp_retry(jid : String, reset_count : Bool, redis : Redis::Client? = nil) : Job?
       redis_client = redis || RedisConnection.new_client
 
@@ -204,7 +206,8 @@ module Morganite
       job
     end
 
-    # JQCP Section 8.5 (KillJob): forces any non-terminal Job straight to
+    # JQCP Section 8.6 (KillJob, draft-difluri-jqcp-02 numbering; was 8.5 in
+    # -01): forces any non-terminal Job straight to
     # dead. Idempotent on an already-dead Job (returns it unchanged, per
     # spec). Returns nil if `jid` isn't found in any non-terminal state
     # (succeeded jobs aren't retained at all — Section 4.3 allows this —
@@ -225,6 +228,12 @@ module Morganite
       else
         if location.starts_with?(Jqcp::PROCESSING_PREFIX)
           owner = location.sub(Jqcp::PROCESSING_PREFIX, "")
+          # Recorded before release (which clears leased_at) so a worker
+          # still mid-flight on this job learns of the kill via its next
+          # RenewLease call (Section 7.6) instead of only discovering it
+          # once job_not_found — same grace-window pattern used for the
+          # max_lease_seconds cap in WorkerApi.renew_lease.
+          Jqcp::Lease.record_killed(redis_client, owner, job.jid)
           Jqcp::Lease.release(redis_client, owner, job)
         else
           redis_client.lrem(location, 1, job.to_json)

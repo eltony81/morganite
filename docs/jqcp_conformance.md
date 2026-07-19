@@ -1,14 +1,19 @@
 # JQCP conformance
 
 Morganite implements a **semantic conformance layer** for the Job Queue
-Control Protocol (JQCP), `draft-difluri-jqcp-01`. This document states
+Control Protocol (JQCP), `draft-difluri-jqcp-02`. This document states
 precisely what that means, what's implemented, what's deliberately not, and
 why — so a reader with the actual Internet-Draft in hand can check this
 implementation against it section by section.
 
 `draft-difluri-jqcp-01` supersedes an earlier `-00` revision (an HTTP/JSON
 REST design); `-01` rewrote the transport onto gRPC + Protocol Buffers while
-keeping the same data model and job/session state machines. `-01` is the
+keeping the same data model and job/session state machines. `-02` supersedes
+`-01`, adding the `RenewLease` RPC and `max_lease_seconds` (Section 7.6/8.4)
+without otherwise changing the data model or state machines — every
+`-01`-era section reference elsewhere in this document that doesn't
+explicitly say `-02` still applies unchanged (only the RenewLease-adjacent
+sections were renumbered, `8.4`-`8.8` → `8.5`-`8.9`, see below). `-02` is the
 draft this document tracks.
 
 ## Why JSON-over-HTTP, not gRPC
@@ -51,6 +56,7 @@ see [Authentication](#authentication).
 | Hello | `POST /jqcp/v1/worker/hello` | `{"wid","queues","concurrency"}` → `{"priorityStrategy","recommendedBeatIntervalSeconds"}` |
 | Enqueue | `POST /jqcp/v1/worker/enqueue` | `{"job":{...}}` → the full Job (Table 1 shape). A future `scheduledAt` routes through the same scheduling path as `perform_at`/`perform_in` — JQCP has no separate "ScheduleJob" RPC. |
 | Fetch | `POST /jqcp/v1/worker/fetch` | `{"wid"}` → a Job (200) or empty body (204) if nothing became eligible within `MORGANITE_JQCP_FETCH_TIMEOUT_SECONDS` (default 5s). **Not streaming** — see [Fetch](#fetch-non-streaming-fallback) below. |
+| RenewLease | `POST /jqcp/v1/worker/renew_lease` | `{"wid","jid"}` → `{"killed"}` (`draft-difluri-jqcp-02` Section 7.6, see [RenewLease](#renewlease) below) |
 | Ack | `POST /jqcp/v1/worker/ack` | `{"wid","jid"}` → `{}` |
 | Fail | `POST /jqcp/v1/worker/fail` | `{"wid","jid","errtype","message","backtrace"}` → `{}` |
 | Beat | `POST /jqcp/v1/worker/beat` | `{"wid"}` → `{"signal":"RUN_SIGNAL_RUN"}` |
@@ -63,8 +69,8 @@ see [Authentication](#authentication).
 | GetQueue | `POST /jqcp/v1/operator/get_queue` | read | Never 404s — queues aren't pre-declared in Morganite, they exist implicitly on first Enqueue. |
 | UpdateQueue | `POST /jqcp/v1/operator/update_queue` | write | `updateMask` is a comma-separated list of `paused`/`priorityStrategy`. |
 | GetJob | `POST /jqcp/v1/operator/get_job` | read | Searches all six states (see [State mapping](#state-mapping)). |
-| RetryJob | `POST /jqcp/v1/operator/retry_job` | write | `resetCount` defaults to `true` (Section 8.4). |
-| KillJob | `POST /jqcp/v1/operator/kill_job` | write | Idempotent on an already-dead job (Section 8.5). |
+| RetryJob | `POST /jqcp/v1/operator/retry_job` | write | `resetCount` defaults to `true` (Section 8.5). |
+| KillJob | `POST /jqcp/v1/operator/kill_job` | write | Idempotent on an already-dead job (Section 8.6). |
 | DeleteJob | `POST /jqcp/v1/operator/delete_job` | write | Requires `"confirm":true`; only valid from `dead`. |
 | ListJobs | `POST /jqcp/v1/operator/list_jobs` | read | `states`, `pageSize`, `pageToken` (offset-encoded). |
 | ListWorkers | `GET /jqcp/v1/operator/list_workers` | read | |
@@ -86,12 +92,117 @@ rule (activation time, Lease capacity, paused queues) is enforced exactly as
 specified; the only thing lost relative to real streaming is Jobs arriving
 mid-wait costing up to one poll interval of latency instead of zero.
 
+### HTTP/3 Fetch (experimental)
+
+The bounded-polling fallback above is the default and the only Fetch
+transport most deployments need. As an additional, opt-in transport,
+Morganite can instead serve Fetch over real HTTP/3 Server Push (RFC 9114
+§4.6), using [quic.cr](https://github.com/eltony81/quic.cr) — a pure-Crystal
+QUIC/HTTP3 implementation — as a real dependency. This gets closer to real
+JQCP streaming semantics: eligible Jobs are pushed to the worker the instant
+they're claimed, instead of the worker paying up to one poll interval of
+latency.
+
+**Enabling it** — five env vars (or the equivalent `Configuration` fields /
+YAML keys), all off by default:
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `MORGANITE_JQCP_HTTP3_ENABLED` | `false` | Turns the HTTP/3 listener on |
+| `MORGANITE_JQCP_HTTP3_PORT` | `7444` | UDP port for the HTTP/3 listener |
+| `MORGANITE_JQCP_HTTP3_CERT_FILE` | `cert.pem` | TLS cert (self-signed, auto-generated if missing — same behavior as quic.cr's own examples) |
+| `MORGANITE_JQCP_HTTP3_KEY_FILE` | `key.pem` | TLS key, paired with the cert above |
+| `MORGANITE_JQCP_HTTP3_FETCH_WINDOW_SECONDS` | `3` | How long one push "window" (see below) stays open |
+
+**Model**: a worker still calls JSON-HTTP `Hello` first to register its
+session — HTTP/3 Fetch only replaces the *Fetch* RPC, not session setup or
+`Ack`/`Fail`/`Beat`, which stay on JSON-HTTP unchanged. It then opens
+`GET /jqcp/v1/worker/fetch?wid=...` on the HTTP/3 listener. That request
+stays open for `jqcp_http3_fetch_window_seconds`; every Job that becomes
+eligible during the window is pushed immediately as a separate resource
+(same claim/Lease logic as the JSON fallback's `fetch_one`, called
+repeatedly instead of once), decodable the same way as a normal Fetch
+response body. When the window elapses the original request finally
+resolves with `{"windowEnded":true}` and the worker opens a new Fetch
+request to keep receiving work. This bounds the server-side fiber lifetime
+per request instead of running one forever; reconnecting is cheap (a new
+stream on the same QUIC connection, not a new handshake), so a short
+default window has no real downside.
+
+One implementation detail worth calling out because it isn't obvious from
+the RPC-per-RPC framing above: each push attempt inside the window still
+goes through the same bounded-blocking claim loop the JSON fallback uses
+(`WorkerApi.fetch_one`), and that loop's own internal budget is capped to
+whatever time is actually left in the outer window — not its own default —
+specifically so a single idle claim attempt can never block past the
+window's own deadline.
+
+**Caveats** (why this stays experimental, not the default):
+- Only a quic.cr-based HTTP/3 client can consume this — there is no
+  interop story with a gRPC/JQCP client today. This is the same tradeoff
+  already accepted for the JSON-HTTP surface (not real gRPC either), just
+  on a different transport.
+- The TLS cert is self-signed and auto-generated if missing — fine for an
+  opt-in experimental feature, not for production without replacing it
+  (same production gap already documented for the JSON-HTTP surface's TLS
+  termination).
+- No independent cross-implementation validation is possible: at the time
+  this was built, the reference HTTP/3 stack used to sanity-check quic.cr's
+  base protocol conformance (quic-go v0.60.0) has no Server Push API at
+  all, so Server Push specifically has only been verified against itself.
+
+### RenewLease
+
+`draft-difluri-jqcp-02` (superseding `-01`) added `RenewLease` (Section
+7.6/8.4): a Worker extends a single Job's Lease without releasing it,
+independent of `Beat`. This is a real, fully server-streaming-agnostic RPC
+— unlike `Fetch`, nothing about it depends on the gRPC-vs-JSON-HTTP
+transport question, so it's implemented as a normal request/response route
+like Ack/Fail, no experimental flag needed.
+
+`Beat` (Section 7.7) and `RenewLease` are deliberately independent signals,
+per Section 8.9's closing paragraph: `Beat` only refreshes the *Worker
+session* heartbeat (`WorkerSession::HEARTBEAT_TTL_SECONDS`) — it says
+nothing about any individual Job's Lease. A worker that calls `Beat` every
+15s but never `RenewLease` on a long-running Job will still lose that Job
+to `LeaseReaper` once its `timeout_seconds` elapses, exactly as if `Beat`
+had never been called at all (covered by
+`spec/morganite/jqcp/e2e_scenarios_spec.cr`'s Scenario 7 "Beat alone"
+case). The effective Lease deadline is whichever is later: the original
+Fetch time plus `timeout_seconds`, or the most recent successful
+`RenewLease` plus `timeout_seconds` — `Jqcp::Lease.renew` is literally
+`Jqcp::Lease.track` called again, which re-`ZADD`s the same ZSET member
+(the Job's own JSON, unchanged) at a fresh score, in place.
+
+`max_lease_seconds` (Table 1's new field, 0/absent means no cap) bounds
+cumulative ACTIVE time across any number of renewals, tracked separately
+from the Lease ZSET itself via `Jqcp::Lease.leased_at` (set once, at the
+original Fetch, only when `max_lease_seconds > 0`). A `RenewLease` call
+that would push cumulative ACTIVE time past the cap is **not** extended —
+the Broker kills the Job the same way an Operator's `KillJob` would
+(`Failures.kill`) and responds `{"killed":true}` rather than rejecting the
+call outright, so the worker's own request always succeeds and the
+response itself carries the outcome.
+
+A Job Killed while a worker still believes it holds the Lease (either via
+the `max_lease_seconds` cap above, or a concurrent Operator `KillJob`) is
+recorded in a short-lived (`Jqcp::Lease::RECENTLY_KILLED_GRACE_SECONDS`,
+30s) marker keyed by `(wid, jid)`. The worker's *next* `RenewLease` call for
+that Job — even though its Lease is already gone — still responds
+`{"killed":true}` rather than `job_not_found`, so the worker learns of the
+kill within one renewal interval instead of only discovering it on its
+eventual Ack/Fail. Once the grace window passes, the same call correctly
+falls back to `job_not_found`, matching the poison-pill consistency already
+established for late Ack/Fail after a `KillJob` (Scenario 5).
+
 ## Data model mapping
 
-- `Job#priority`, `#timeout_seconds`, `#idempotency_key`, `#error_type` are
-  the JQCP fields Morganite's `Job` didn't already have (Section 4.2/7.5).
-  `priority` is stored but does not reorder a queue's Redis LIST — Section
-  8.1 only mandates ordering *across* queues (Section 10), not within one.
+- `Job#priority`, `#timeout_seconds`, `#idempotency_key`, `#error_type`,
+  `#max_lease_seconds` are the JQCP fields Morganite's `Job` didn't already
+  have (Section 4.2/7.5/7.6). `priority` is stored but does not reorder a
+  queue's Redis LIST — Section 8.1 only mandates ordering *across* queues
+  (Section 10), not within one. `max_lease_seconds` (0/absent = no cap) is
+  only meaningful together with `RenewLease` — see [RenewLease](#renewlease).
 - `state` (Section 4.3) is never stored on the Job record. It's computed on
   read from which Redis structure currently holds the job
   (`Morganite::Jqcp.state_for`) — see [State mapping](#state-mapping).
@@ -132,7 +243,7 @@ mid-wait costing up to one poll interval of latency instead of zero.
 | `SUCCEEDED` | Not retained (Section 4.3 explicitly allows a Broker to discard immediately, "as Sidekiq does") — a succeeded job simply isn't found by GetJob afterward, indistinguishable from one that never existed. |
 
 **Consequence of not retaining `SUCCEEDED`, found while running the scenarios in
-`JQCP-e2e-test-scenarios.md`:** Section 8.5 prescribes `KillJob` on a
+`JQCP-e2e-test-scenarios.md`:** Section 8.6 prescribes `KillJob` on a
 `SUCCEEDED` job return `FAILED_PRECONDITION`/`invalid_state_transition`. This
 Broker can't distinguish "this jid succeeded" from "this jid never existed" —
 both return `job_not_found`. Documented as a known, deliberate deviation
@@ -148,12 +259,14 @@ uses for native fiber workers (`<hostname>:<pid>`). This means `OrphanReaper`
 heartbeat — recovers a crashed JQCP worker's in-flight jobs with no
 JQCP-specific code at all.
 
-That only covers *process*-level death. Section 8.8's Lease timeout is
+That only covers *process*-level death. Section 8.9's Lease timeout is
 *per-job* and independent of whether the claiming worker is otherwise alive
 (one hung job in an otherwise-healthy process): `Jqcp::LeaseReaper` polls a
 separate `morganite:jqcp:leases` ZSET, populated only for jobs fetched with
 `timeout_seconds > 0`, and requeues an expired one without incrementing
-`retry_count`, exactly as Section 8.8 specifies.
+`retry_count`, exactly as Section 8.9 specifies. A Worker can push that
+per-job deadline back out — without releasing the Lease — via `RenewLease`;
+see [RenewLease](#renewlease).
 
 ## Authentication
 

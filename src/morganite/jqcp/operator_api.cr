@@ -148,7 +148,8 @@ module Morganite
         end
       end
 
-      # Section 9.5 / Section 8.4.
+      # Section 9.5 / Section 8.5 (draft-difluri-jqcp-02 numbering; was 8.4
+      # in -01).
       def self.retry_job(env) : String | Errors::Rejection
         body = parse_json_body(env)
         return Errors::Rejection.new("invalid_job") unless body
@@ -167,7 +168,8 @@ module Morganite
         end
       end
 
-      # Section 9.6 / Section 8.5.
+      # Section 9.6 / Section 8.6 (draft-difluri-jqcp-02 numbering; was 8.5
+      # in -01).
       def self.kill_job(env) : String | Errors::Rejection
         body = parse_json_body(env)
         return Errors::Rejection.new("invalid_job") unless body
@@ -183,7 +185,8 @@ module Morganite
         end
       end
 
-      # Section 9.7 / Section 8.6.
+      # Section 9.7 / Section 8.7 (draft-difluri-jqcp-02 numbering; was 8.6
+      # in -01).
       def self.delete_job(env) : String | Errors::Rejection
         body = parse_json_body(env)
         return Errors::Rejection.new("invalid_job") unless body

@@ -30,11 +30,18 @@ module Morganite
     # reorder a queue's underlying Redis LIST (Section 8.1 only mandates
     # ordering *across* queues via a priority strategy, Section 10 — not
     # intra-queue reordering). `timeout_seconds` is opt-in Lease tracking
-    # (Section 8.8): 0 means the job isn't Lease-tracked and only the
-    # existing process-level OrphanReaper covers it.
+    # (Section 8.9, draft-difluri-jqcp-02 numbering; was 8.8 in -01): 0 means
+    # the job isn't Lease-tracked and only the existing process-level
+    # OrphanReaper covers it.
     property priority : Int32
     property timeout_seconds : UInt32
     property idempotency_key : String?
+
+    # JQCP Section 7.6 (RenewLease): optional hard cap on cumulative ACTIVE
+    # time since the original Fetch, even across repeated RenewLease calls.
+    # 0 means no cap (a Lease can be renewed indefinitely as long as the
+    # worker keeps calling RenewLease within each `timeout_seconds` window).
+    property max_lease_seconds : UInt32
 
     def initialize(
       @class : String,
@@ -60,6 +67,7 @@ module Morganite
       @priority : Int32 = 0,
       @timeout_seconds : UInt32 = 0,
       @idempotency_key : String? = nil,
+      @max_lease_seconds : UInt32 = 0,
     )
     end
 

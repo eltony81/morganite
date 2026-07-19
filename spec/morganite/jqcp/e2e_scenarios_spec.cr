@@ -409,4 +409,102 @@ describe "JQCP e2e scenarios (JQCP-e2e-test-scenarios.md)" do
       jid_of(second).should_not eq(jid1)
     end
   end
+
+  describe "9. Scenario 7 — Job di lunga durata con RenewLease" do
+    it "RenewLease extends the Lease past the original timeout_seconds and reports killed:false" do
+      enq = Morganite::Jqcp::WorkerApi.enqueue(worker_env(reference_job(%(,"timeoutSeconds":6,"maxLeaseSeconds":3600))))
+      jid = jid_of(enq)
+      Morganite::Jqcp::WorkerApi.hello(worker_env(%({"wid":"w1","queues":["default"],"concurrency":5})))
+      Morganite::Jqcp::WorkerApi.fetch(worker_env(%({"wid":"w1"}))) # Lease expires ~t+6s if never renewed
+
+      sleep 3.seconds # still comfortably within the original 6s window when we renew
+      renewed = JSON.parse(Morganite::Jqcp::WorkerApi.renew_lease(worker_env(%({"wid":"w1","jid":"#{jid}"}))).as(String))
+      renewed["killed"].as_bool.should be_false # Lease now expires ~(t+3s)+6s = t+9s
+
+      # t+7s: past the *original* expiry, but comfortably before the renewed
+      # one — confirm LeaseReaper does NOT reclaim the job (no
+      # Lease-Timeout-Expired despite exceeding the original timeout_seconds
+      # — RFC section 8.9's closing paragraph: the real deadline is whichever
+      # is later). Margins here are intentionally generous (~2s of slack
+      # either side of the reaper's poll window) — a tighter version of this
+      # test flaked once on a poll landing in the same second as expiry.
+      sleep 4.seconds
+      reaper = Morganite::Jqcp::LeaseReaper.new(poll_interval: 300.milliseconds)
+      spawn { reaper.run }
+      sleep 1.second
+      reaper.stop
+
+      still_active = JSON.parse(Morganite::Jqcp::OperatorApi.get_job(read_env(%({"jid":"#{jid}"}))).as(String))
+      still_active["state"].as_s.should eq("JOB_STATE_ACTIVE")
+
+      acked = Morganite::Jqcp::WorkerApi.ack(worker_env(%({"wid":"w1","jid":"#{jid}"})))
+      acked.should be_a(String)
+    end
+
+    it "KillJob while renewals are ongoing: immediate DEAD, and the worker's next RenewLease learns of it (killed:true) within the grace window instead of only via job_not_found" do
+      enq = Morganite::Jqcp::WorkerApi.enqueue(worker_env(reference_job(%(,"timeoutSeconds":60,"maxLeaseSeconds":3600))))
+      jid = jid_of(enq)
+      Morganite::Jqcp::WorkerApi.hello(worker_env(%({"wid":"w1","queues":["default"],"concurrency":5})))
+      Morganite::Jqcp::WorkerApi.fetch(worker_env(%({"wid":"w1"})))
+
+      renewed = JSON.parse(Morganite::Jqcp::WorkerApi.renew_lease(worker_env(%({"wid":"w1","jid":"#{jid}"}))).as(String))
+      renewed["killed"].as_bool.should be_false
+
+      killed = JSON.parse(Morganite::Jqcp::OperatorApi.kill_job(write_env(%({"jid":"#{jid}"}))).as(String))
+      killed["state"].as_s.should eq("JOB_STATE_DEAD")
+
+      # w1 is unaware the job was killed and calls RenewLease again (its
+      # next scheduled renewal) — must get OK/killed:true, not job_not_found.
+      late_renewal = JSON.parse(Morganite::Jqcp::WorkerApi.renew_lease(worker_env(%({"wid":"w1","jid":"#{jid}"}))).as(String))
+      late_renewal["killed"].as_bool.should be_true
+
+      # Consistent with poison-pill handling (Scenario 5): a subsequent
+      # Ack/Fail from that worker for that jid is still rejected.
+      late_ack = Morganite::Jqcp::WorkerApi.ack(worker_env(%({"wid":"w1","jid":"#{jid}"})))
+      late_ack.should be_a(Morganite::Jqcp::Errors::Rejection)
+      late_ack.as(Morganite::Jqcp::Errors::Rejection).reason.should eq("job_not_found")
+    end
+
+    it "a RenewLease that would exceed max_lease_seconds is not extended: the Broker kills it and reports killed:true" do
+      enq = Morganite::Jqcp::WorkerApi.enqueue(worker_env(reference_job(%(,"timeoutSeconds":60,"maxLeaseSeconds":1))))
+      jid = jid_of(enq)
+      Morganite::Jqcp::WorkerApi.hello(worker_env(%({"wid":"w1","queues":["default"],"concurrency":5})))
+      Morganite::Jqcp::WorkerApi.fetch(worker_env(%({"wid":"w1"})))
+
+      renewed = JSON.parse(Morganite::Jqcp::WorkerApi.renew_lease(worker_env(%({"wid":"w1","jid":"#{jid}"}))).as(String))
+      renewed["killed"].as_bool.should be_true
+
+      dead = JSON.parse(Morganite::Jqcp::OperatorApi.get_job(read_env(%({"jid":"#{jid}"}))).as(String))
+      dead["state"].as_s.should eq("JOB_STATE_DEAD")
+    end
+
+    it "RenewLease called by a worker that does not hold the current Lease -> job_not_found" do
+      enq = Morganite::Jqcp::WorkerApi.enqueue(worker_env(reference_job(%(,"timeoutSeconds":60,"maxLeaseSeconds":3600))))
+      jid = jid_of(enq)
+      Morganite::Jqcp::WorkerApi.hello(worker_env(%({"wid":"w1","queues":["default"],"concurrency":5})))
+      Morganite::Jqcp::WorkerApi.hello(worker_env(%({"wid":"w2","queues":["default"],"concurrency":5})))
+      Morganite::Jqcp::WorkerApi.fetch(worker_env(%({"wid":"w1"})))
+
+      wrong_worker = Morganite::Jqcp::WorkerApi.renew_lease(worker_env(%({"wid":"w2","jid":"#{jid}"})))
+      wrong_worker.should be_a(Morganite::Jqcp::Errors::Rejection)
+      wrong_worker.as(Morganite::Jqcp::Errors::Rejection).reason.should eq("job_not_found")
+    end
+
+    it "Beat alone (never RenewLease) does not prevent Lease expiry on a job exceeding timeout_seconds -- the two signals are independent" do
+      enq = Morganite::Jqcp::WorkerApi.enqueue(worker_env(reference_job(%(,"timeoutSeconds":1))))
+      jid = jid_of(enq)
+      Morganite::Jqcp::WorkerApi.hello(worker_env(%({"wid":"w1","queues":["default"],"concurrency":5})))
+      Morganite::Jqcp::WorkerApi.fetch(worker_env(%({"wid":"w1"})))
+
+      Morganite::Jqcp::WorkerApi.beat(worker_env(%({"wid":"w1"})))
+
+      reaper = Morganite::Jqcp::LeaseReaper.new(poll_interval: 300.milliseconds)
+      spawn { reaper.run }
+      sleep 2.seconds
+      reaper.stop
+
+      recovered = JSON.parse(Morganite::Jqcp::OperatorApi.get_job(read_env(%({"jid":"#{jid}"}))).as(String))
+      recovered["state"].as_s.should eq("JOB_STATE_ENQUEUED")
+    end
+  end
 end

@@ -20,6 +20,10 @@ shards:
     git: https://github.com/kemalcr/kemal.git
     version: 1.11.0
 
+  quic:
+    git: https://github.com/eltony81/quic.cr.git
+    version: 0.11.0
+
   radix:
     git: https://github.com/luislavena/radix.git
     version: 0.4.1

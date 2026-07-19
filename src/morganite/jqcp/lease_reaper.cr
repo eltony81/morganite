@@ -5,12 +5,13 @@ require "./lease"
 
 module Morganite
   module Jqcp
-    # JQCP Section 8.8 (Lease-Timeout-Expired Event). Unlike `OrphanReaper`
+    # JQCP Section 8.9 (Lease-Timeout-Expired Event, draft-difluri-jqcp-02
+    # numbering; was 8.8 in -01). Unlike `OrphanReaper`
     # (process-level: an entire processing list is reaped once its owner's
     # heartbeat disappears), this is a *per-job* timeout, opt-in via
     # `timeout_seconds` — it fires even if the owning worker is still alive
     # and beating normally (e.g. one job hung while the process itself is
-    # fine). Requeues without incrementing retry_count (Section 8.8: "making
+    # fine). Requeues without incrementing retry_count (Section 8.9: "making
     # it eligible for FETCH... without incrementing retry.count" — this is
     # lease recovery, not a failure).
     class LeaseReaper

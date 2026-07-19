@@ -28,6 +28,26 @@ module Morganite
     # non-streaming fallback) waits for a Job before returning empty.
     property jqcp_fetch_timeout_seconds : Int32
 
+    # Experimental, opt-in HTTP/3 Fetch (docs/jqcp_conformance.md) using
+    # quic.cr's real Server Push instead of bounded polling. Off by default:
+    # requires its own UDP port + TLS cert/key, and only a quic.cr-based
+    # client can consume it.
+    property? jqcp_http3_enabled : Bool
+    property jqcp_http3_port : Int32
+    property jqcp_http3_cert_file : String
+    property jqcp_http3_key_file : String
+    # How long one HTTP/3 Fetch "window" (an open push session) stays open
+    # pushing eligible Jobs before ending and expecting the worker to
+    # reconnect — bounds the server-side fiber lifetime per request. Default
+    # is deliberately under 5s: quic.cr's H3::Client#get has a hardcoded 5s
+    # read timeout on the *unary* final response (pushes themselves arrive
+    # via a separate, unbounded code path and are unaffected) — a window at
+    # or above that would still deliver every push correctly but the client
+    # would never see the final `{"windowEnded":true}` response. Reconnects
+    # are cheap regardless (a new stream on the same QUIC connection, not a
+    # new handshake), so a short window has no real downside today.
+    property jqcp_http3_fetch_window_seconds : Int32
+
     def initialize(
       @redis_url : String = ENV.fetch("MORGANITE_REDIS_URL", "redis://localhost:6379/0"),
       @queue : String = ENV.fetch("MORGANITE_QUEUE", "default"),
@@ -46,6 +66,11 @@ module Morganite
       @jqcp_operator_read_token : String? = ENV["MORGANITE_JQCP_OPERATOR_READ_TOKEN"]?,
       @jqcp_operator_write_token : String? = ENV["MORGANITE_JQCP_OPERATOR_WRITE_TOKEN"]?,
       @jqcp_fetch_timeout_seconds : Int32 = ENV.fetch("MORGANITE_JQCP_FETCH_TIMEOUT_SECONDS", "5").to_i,
+      @jqcp_http3_enabled : Bool = ENV.fetch("MORGANITE_JQCP_HTTP3_ENABLED", "false") == "true",
+      @jqcp_http3_port : Int32 = ENV.fetch("MORGANITE_JQCP_HTTP3_PORT", "7444").to_i,
+      @jqcp_http3_cert_file : String = ENV.fetch("MORGANITE_JQCP_HTTP3_CERT_FILE", "cert.pem"),
+      @jqcp_http3_key_file : String = ENV.fetch("MORGANITE_JQCP_HTTP3_KEY_FILE", "key.pem"),
+      @jqcp_http3_fetch_window_seconds : Int32 = ENV.fetch("MORGANITE_JQCP_HTTP3_FETCH_WINDOW_SECONDS", "3").to_i,
     )
     end
 
@@ -83,6 +108,11 @@ module Morganite
       config.jqcp_operator_read_token = yaml["jqcp_operator_read_token"].as_s if yaml["jqcp_operator_read_token"]?
       config.jqcp_operator_write_token = yaml["jqcp_operator_write_token"].as_s if yaml["jqcp_operator_write_token"]?
       config.jqcp_fetch_timeout_seconds = yaml["jqcp_fetch_timeout_seconds"].as_i if yaml["jqcp_fetch_timeout_seconds"]?
+      config.jqcp_http3_enabled = yaml["jqcp_http3_enabled"].as_bool if yaml["jqcp_http3_enabled"]?
+      config.jqcp_http3_port = yaml["jqcp_http3_port"].as_i if yaml["jqcp_http3_port"]?
+      config.jqcp_http3_cert_file = yaml["jqcp_http3_cert_file"].as_s if yaml["jqcp_http3_cert_file"]?
+      config.jqcp_http3_key_file = yaml["jqcp_http3_key_file"].as_s if yaml["jqcp_http3_key_file"]?
+      config.jqcp_http3_fetch_window_seconds = yaml["jqcp_http3_fetch_window_seconds"].as_i if yaml["jqcp_http3_fetch_window_seconds"]?
 
       config
     end
@@ -110,6 +140,11 @@ module Morganite
       config.jqcp_operator_read_token = json["jqcp_operator_read_token"].as_s if json["jqcp_operator_read_token"]?
       config.jqcp_operator_write_token = json["jqcp_operator_write_token"].as_s if json["jqcp_operator_write_token"]?
       config.jqcp_fetch_timeout_seconds = json["jqcp_fetch_timeout_seconds"].as_i if json["jqcp_fetch_timeout_seconds"]?
+      config.jqcp_http3_enabled = json["jqcp_http3_enabled"].as_bool if json["jqcp_http3_enabled"]?
+      config.jqcp_http3_port = json["jqcp_http3_port"].as_i if json["jqcp_http3_port"]?
+      config.jqcp_http3_cert_file = json["jqcp_http3_cert_file"].as_s if json["jqcp_http3_cert_file"]?
+      config.jqcp_http3_key_file = json["jqcp_http3_key_file"].as_s if json["jqcp_http3_key_file"]?
+      config.jqcp_http3_fetch_window_seconds = json["jqcp_http3_fetch_window_seconds"].as_i if json["jqcp_http3_fetch_window_seconds"]?
 
       config
     end
@@ -122,6 +157,8 @@ module Morganite
       raise ArgumentError.new("dead_timeout_in_seconds must be greater than or equal to 0") if @dead_timeout_in_seconds < 0
       raise ArgumentError.new("orphan_reaper_poll_interval_seconds must be greater than 0") if @orphan_reaper_poll_interval_seconds <= 0
       raise ArgumentError.new("jqcp_fetch_timeout_seconds must be greater than 0") if @jqcp_fetch_timeout_seconds <= 0
+      raise ArgumentError.new("jqcp_http3_port must be between 1 and 65535") unless (1..65535).includes?(@jqcp_http3_port)
+      raise ArgumentError.new("jqcp_http3_fetch_window_seconds must be greater than 0") if @jqcp_http3_fetch_window_seconds <= 0
 
       if @web_username && !@web_password
         raise ArgumentError.new("web_password is required when web_username is set")

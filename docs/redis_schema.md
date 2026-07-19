@@ -39,13 +39,15 @@ Morganite uses Redis as its sole backend. This document describes the keys, list
 
 ## JQCP
 
-Semantic conformance layer for JQCP (`draft-difluri-jqcp-01`) — see `docs/jqcp_conformance.md`. Reuses every key above unchanged (a JQCP-claimed job is a job in `morganite:queue:*`/`morganite:processing:*`/etc. exactly like any other); the keys below are the only genuinely new state.
+Semantic conformance layer for JQCP (`draft-difluri-jqcp-02`) — see `docs/jqcp_conformance.md`. Reuses every key above unchanged (a JQCP-claimed job is a job in `morganite:queue:*`/`morganite:processing:*`/etc. exactly like any other); the keys below are the only genuinely new state.
 
 | Key | Type | Description |
 |-----|------|-------------|
 | `morganite:processing:<wid>` / `morganite:processes:<wid>` | List / String | A JQCP Worker's claimed jobs and heartbeat, sharing the exact same key scheme as a native fiber worker's `<hostname>:<pid>` (see "Queues" above) — `OrphanReaper` recovers a dead JQCP worker's in-flight jobs with no JQCP-specific code. |
-| `morganite:jqcp:session:<wid>` | String (JSON) | Worker Session Lifecycle record (Section 7.7): `state`, `queues`, `concurrency`, `last_beat`. TTL'd and refreshed by Hello/Beat; expires along with the heartbeat above. |
-| `morganite:jqcp:leases` | Sorted set | Per-job Lease expiry (Section 8.8), score = Unix timestamp, member = job JSON. Only populated for jobs fetched with `timeout_seconds > 0`; polled by `LeaseReaper`. |
+| `morganite:jqcp:session:<wid>` | String (JSON) | Worker Session Lifecycle record (Section 7.8): `state`, `queues`, `concurrency`, `last_beat`. TTL'd and refreshed by Hello/Beat; expires along with the heartbeat above. |
+| `morganite:jqcp:leases` | Sorted set | Per-job Lease expiry (Section 8.9), score = Unix timestamp, member = job JSON. Only populated for jobs fetched with `timeout_seconds > 0`; polled by `LeaseReaper`. `RenewLease` (Section 7.6) re-scores the same member in place rather than releasing it. |
+| `morganite:jqcp:leased_at:<wid>:<jid>` | String | Set once, at the original Fetch, only for `max_lease_seconds > 0` jobs — the timestamp `RenewLease` (Section 8.4) compares against to compute cumulative ACTIVE time against the cap. TTL'd well past `max_lease_seconds`; cleared on Ack/Fail. |
+| `morganite:jqcp:recently_killed:<wid>:<jid>` | String | Short-lived (30s) courtesy marker set whenever a Job is killed while still under a Lease (KillJob or the `max_lease_seconds` cap) — lets that Job's next `RenewLease` call return `killed:true` instead of `job_not_found` (Section 7.6/8.4). |
 | `morganite:jqcp:idem:<queue>:<key>` | String | Idempotency-key reservation (Section 4.4), value = holding job's `jid`. Set with `NX`; released (compare-and-delete) once the job leaves a non-terminal state. |
 | `morganite:queue:<name>:paused` | String | Presence = queue is paused (Section 9.3). Checked by `Launcher#fetch_one` and the JQCP Fetch handler alike — not JQCP-exclusive, just introduced by it. |
 | `morganite:jqcp:priority_strategy` | String (JSON) | Broker-default priority strategy (Section 10): `mode` (`strict`/`weighted`) and per-queue `weights`. |

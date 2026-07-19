@@ -54,8 +54,9 @@ module Morganite
       timeout_seconds : UInt32 = 0_u32,
       idempotency_key : String? = nil,
       jid : String? = nil,
+      max_lease_seconds : UInt32 = 0_u32,
     ) : Job?
-      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index, priority, timeout_seconds, idempotency_key, jid)
+      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index, priority, timeout_seconds, idempotency_key, jid, max_lease_seconds)
 
       if job.idempotency_key
         reserved = Morganite.pool.with { |redis| Jqcp::Idempotency.reserve(redis, job) }
@@ -102,8 +103,9 @@ module Morganite
       timeout_seconds : UInt32 = 0_u32,
       idempotency_key : String? = nil,
       jid : String? = nil,
+      max_lease_seconds : UInt32 = 0_u32,
     ) : Job?
-      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index, priority, timeout_seconds, idempotency_key, jid)
+      job = build_job(worker_name, args, queue, retry, backtrace, dead, unique, unique_for, bid, wid, step_index, priority, timeout_seconds, idempotency_key, jid, max_lease_seconds)
 
       if job.idempotency_key
         reserved = Morganite.pool.with { |redis| Jqcp::Idempotency.reserve(redis, job) }
@@ -184,6 +186,7 @@ module Morganite
       timeout_seconds = 0_u32,
       idempotency_key = nil,
       jid = nil,
+      max_lease_seconds = 0_u32,
     )
       Job.new(
         class: worker_name,
@@ -201,7 +204,8 @@ module Morganite
         priority: priority,
         timeout_seconds: timeout_seconds,
         idempotency_key: idempotency_key,
-        jid: jid || UUID.random.to_s
+        jid: jid || UUID.random.to_s,
+        max_lease_seconds: max_lease_seconds
       )
     end
   end

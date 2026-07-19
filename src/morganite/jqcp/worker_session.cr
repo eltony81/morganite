@@ -4,11 +4,12 @@ require "../logger"
 
 module Morganite
   module Jqcp
-    # JQCP Section 7.7: Worker Session Lifecycle, keyed by wid, independent
+    # JQCP Section 7.8 (draft-difluri-jqcp-02 numbering; was 7.7 in -01):
+    # Worker Session Lifecycle, keyed by wid, independent
     # of any single gRPC Channel (Not Identified -> Identified -> Quiet ->
     # Terminating -> Closed). Since this Broker doesn't implement streaming
     # Fetch (see docs/jqcp_conformance.md), there is no server-observable
-    # event for a Worker entering Quiet on its own (Section 7.6: it would
+    # event for a Worker entering Quiet on its own (Section 7.7: it would
     # normally do so by ending its Fetch stream) — a Worker in this
     # transport simply stops calling Fetch, which the Broker can't
     # distinguish from "temporarily idle." Session state therefore only
@@ -55,9 +56,10 @@ module Morganite
         session
       end
 
-      # Section 7.6: refreshes both the session record and its heartbeat
-      # TTL. Returns nil if wid never said Hello or its session has expired
-      # (Not Identified / Closed) — callers must reject per Section 7.1.
+      # Section 7.7 (draft-difluri-jqcp-02; was 7.6 in -01): refreshes both
+      # the session record and its heartbeat TTL. Returns nil if wid never
+      # said Hello or its session has expired (Not Identified / Closed) —
+      # callers must reject per Section 7.1.
       def self.beat(redis : Redis::Client, wid : String) : Session?
         session = find(redis, wid)
         return nil unless session

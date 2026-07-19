@@ -51,6 +51,11 @@ module Morganite
           end
         end
 
+        post "/jqcp/v1/worker/renew_lease" do |env|
+          reject_unless_worker_authorized(env)
+          respond(env, renew_lease(env))
+        end
+
         post "/jqcp/v1/worker/ack" do |env|
           reject_unless_worker_authorized(env)
           respond(env, ack(env))
@@ -116,7 +121,8 @@ module Morganite
         idempotency_key : String?,
         jid : String?,
         max_retries : Int32?,
-        scheduled_at : Time?
+        scheduled_at : Time?,
+        max_lease_seconds : UInt32
 
       # Section 7.2. Also covers Table 1's `scheduled_at`: a future
       # scheduled_at routes through `Client.schedule` (JQCP has no separate
@@ -136,14 +142,16 @@ module Morganite
                   params.type, scheduled_at, params.args, params.queue,
                   retry: params.max_retries || true,
                   priority: params.priority, timeout_seconds: params.timeout_seconds,
-                  idempotency_key: params.idempotency_key, jid: params.jid
+                  idempotency_key: params.idempotency_key, jid: params.jid,
+                  max_lease_seconds: params.max_lease_seconds
                 )
               else
                 Client.enqueue(
                   params.type, params.args, params.queue,
                   retry: params.max_retries || true,
                   priority: params.priority, timeout_seconds: params.timeout_seconds,
-                  idempotency_key: params.idempotency_key, jid: params.jid
+                  idempotency_key: params.idempotency_key, jid: params.jid,
+                  max_lease_seconds: params.max_lease_seconds
                 )
               end
 
@@ -174,7 +182,8 @@ module Morganite
           idempotency_key: job_field["idempotencyKey"]?.try(&.as_s?),
           jid: job_field["jid"]?.try(&.as_s?),
           max_retries: max_retries,
-          scheduled_at: parse_scheduled_at(job_field)
+          scheduled_at: parse_scheduled_at(job_field),
+          max_lease_seconds: (job_field["maxLeaseSeconds"]?.try(&.as_i?) || 0).to_u32
         )
       end
 
@@ -217,6 +226,63 @@ module Morganite
         end
       end
 
+      # Section 7.6 / 8.4 (RenewLease, draft-difluri-jqcp-02): extends a
+      # single Job's Lease without releasing it, independent of Beat (which
+      # only refreshes the Worker *session*, Section 7.7's HEARTBEAT_TTL —
+      # the two signals are deliberately orthogonal, see the closing
+      # paragraph of Section 8.9). Three outcomes:
+      #   - Lease still held by wid, under any `max_lease_seconds` cap ->
+      #     extend it (killed:false).
+      #   - Lease still held by wid, but extending would push cumulative
+      #     ACTIVE time past `max_lease_seconds` -> Killed via the same path
+      #     as an Operator KillJob (killed:true), not merely rejected.
+      #   - Lease no longer held by wid: if it was Killed (by an Operator or
+      #     by the cap above) within the last
+      #     `Lease::RECENTLY_KILLED_GRACE_SECONDS`, still respond OK with
+      #     killed:true so the worker learns within one renewal interval
+      #     instead of only via a failed Ack/Fail later; otherwise
+      #     job_not_found (already Acked, reclaimed by a Lease timeout, or
+      #     never existed — Section 8.4, same as Ack/Fail's job_not_found).
+      def self.renew_lease(env) : String | Errors::Rejection
+        body = parse_json_body(env)
+        return Errors::Rejection.new("invalid_job") unless body
+
+        wid = body["wid"]?.try(&.as_s?)
+        jid = body["jid"]?.try(&.as_s?)
+        return Errors::Rejection.new("invalid_job") unless wid && jid
+
+        Morganite.pool.with do |redis|
+          job = Lease.find(redis, wid, jid)
+          unless job
+            next %({"killed":true}) if Lease.recently_killed?(redis, wid, jid)
+            next Errors::Rejection.new("job_not_found", {"jid" => jid})
+          end
+
+          if job.max_lease_seconds > 0 && exceeds_max_lease?(redis, wid, job)
+            Failures.kill(jid, redis)
+            next %({"killed":true})
+          end
+
+          Lease.renew(redis, job)
+          %({"killed":false})
+        end
+      end
+
+      # Cumulative ACTIVE time (since the *original* Fetch, across any
+      # number of prior renewals) that a fresh renewal would reach, compared
+      # against the Job's own cap. `leased_at` missing (e.g. tracking was
+      # never recorded because max_lease_seconds started at 0 and only a
+      # later RenewLease attempt sees it nonzero) fails open — no cap can be
+      # enforced without a start time, so it's treated as never having
+      # exceeded it, matching Section 7.6's "0/absent means no cap" spirit.
+      private def self.exceeds_max_lease?(redis : Redis::Client, wid : String, job : Job) : Bool
+        leased_at = Lease.leased_at(redis, wid, job.jid)
+        return false unless leased_at
+
+        elapsed = Time.utc.to_unix - leased_at
+        elapsed + job.timeout_seconds > job.max_lease_seconds
+      end
+
       # Section 7.5.
       def self.fail(env) : String | Errors::Rejection
         body = parse_json_body(env)
@@ -242,7 +308,8 @@ module Morganite
         end
       end
 
-      # Section 7.6.
+      # Section 7.7 (draft-difluri-jqcp-02; was 7.6 in -01, shifted since
+      # RenewLease was inserted between Fail and Beat).
       def self.beat(env) : String | Errors::Rejection
         body = parse_json_body(env)
         return Errors::Rejection.new("invalid_job") unless body
@@ -258,7 +325,15 @@ module Morganite
         end
       end
 
-      private def self.fetch_one(redis : Redis::Client, wid : String) : Job?
+      # Public: reused as-is by Jqcp::Http3FetchServer (docs/jqcp_conformance.md)
+      # for the experimental HTTP/3 push Fetch — same claim/Lease logic,
+      # called repeatedly within a longer push "window" instead of once.
+      # `budget_seconds` defaults to the JSON-HTTP Fetch's own bound but is
+      # caller-overridable: Http3FetchServer passes the *remaining* window
+      # time so a single call can never block past the outer window's own
+      # deadline (it used to always block up to the full default here,
+      # regardless of how little window time was left — see http3_fetch_server.cr).
+      def self.fetch_one(redis : Redis::Client, wid : String, budget_seconds : Int32 = Morganite.config.jqcp_fetch_timeout_seconds) : Job?
         session = WorkerSession.find(redis, wid)
         return nil unless session
 
@@ -266,7 +341,7 @@ module Morganite
         return nil if queue_keys.empty?
 
         processing_key = Lease.processing_key(wid)
-        deadline = Time.instant + Morganite.config.jqcp_fetch_timeout_seconds.seconds
+        deadline = Time.instant + budget_seconds.seconds
 
         while Time.instant < deadline
           queue_keys.each do |queue_key|
@@ -274,6 +349,7 @@ module Morganite
             if result.is_a?(String)
               job = Job.from_json(result)
               Lease.track(redis, job)
+              Lease.record_leased_at(redis, wid, job.jid, job.max_lease_seconds) if job.max_lease_seconds > 0
               return job
             end
             break if Time.instant >= deadline

@@ -59,18 +59,19 @@ module Morganite
     # (typically via `scheduled_at_for` below) pass it in explicitly.
     def self.job_to_json(job : Job, state : JobState, scheduled_at : Time? = nil) : JSON::Any
       JSON::Any.new({
-        "jid"            => JSON::Any.new(job.jid),
-        "type"           => JSON::Any.new(job.class),
-        "queue"          => JSON::Any.new(job.queue),
-        "args"           => JSON::Any.new(job.args),
-        "createdAt"      => JSON::Any.new(Time.unix_ms((job.created_at * 1000).to_i64).to_rfc3339),
-        "enqueuedAt"     => timestamp_json(job.enqueued_at),
-        "scheduledAt"    => scheduled_at ? JSON::Any.new(scheduled_at.to_rfc3339) : JSON::Any.new(nil),
-        "priority"       => JSON::Any.new(job.priority.to_i64),
-        "retry"          => retry_policy_json(job),
-        "timeoutSeconds" => JSON::Any.new(job.timeout_seconds.to_i64),
-        "state"          => JSON::Any.new(state.to_jqcp_s),
-        "lastError"      => last_error_json(job),
+        "jid"             => JSON::Any.new(job.jid),
+        "type"            => JSON::Any.new(job.class),
+        "queue"           => JSON::Any.new(job.queue),
+        "args"            => JSON::Any.new(job.args),
+        "createdAt"       => JSON::Any.new(Time.unix_ms((job.created_at * 1000).to_i64).to_rfc3339),
+        "enqueuedAt"      => timestamp_json(job.enqueued_at),
+        "scheduledAt"     => scheduled_at ? JSON::Any.new(scheduled_at.to_rfc3339) : JSON::Any.new(nil),
+        "priority"        => JSON::Any.new(job.priority.to_i64),
+        "retry"           => retry_policy_json(job),
+        "timeoutSeconds"  => JSON::Any.new(job.timeout_seconds.to_i64),
+        "maxLeaseSeconds" => JSON::Any.new(job.max_lease_seconds.to_i64),
+        "state"           => JSON::Any.new(state.to_jqcp_s),
+        "lastError"       => last_error_json(job),
       })
     end
 
