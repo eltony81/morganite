@@ -1,9 +1,17 @@
-# JQCP Demo Broker
+# JQCP Demo
 
-Minimal Broker app for [`docs/jqcp_tutorial.md`](../../docs/jqcp_tutorial.md)
-— a single registered worker class plus `Morganite::CLI.run`. Producer,
-Worker, and Operator are all played by plain `curl` calls in the tutorial
-itself, not by code in this app.
+Companion code for [`docs/jqcp_tutorial.md`](../../docs/jqcp_tutorial.md) —
+build/deploy instructions for each program are in the tutorial itself, not
+repeated here. Operator is played by plain `curl`, not code.
+
+| File | Role |
+|------|------|
+| `src/broker.cr` | Broker — a registered worker class plus `Morganite::CLI.run`. |
+| `src/producer.cr` | Producer — submits Jobs over JSON-HTTP. No `morganite` dependency. |
+| `src/worker.cr` | Worker — Hello/Fetch/Ack/Fail/RenewLease/Beat loop. No `morganite` dependency. |
+| `src/worker_http3.cr` | Bonus: Worker using the experimental HTTP/3 push Fetch (`quic.cr` directly). |
+| `src/worker_heavy_load.cr` | E2E scenario: real (non-`sleep`) CPU load with periodic `RenewLease`. |
+| `src/worker_no_renew.cr` | E2E scenario: a Worker that never renews — proves `LeaseReaper` reclaims on its own. |
 
 ```bash
 shards install

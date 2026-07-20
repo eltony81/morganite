@@ -212,6 +212,152 @@ verità sullo stato del Job appartiene solo al Broker.
 > ripetuti), non i `KillJob` dell'Operator — per lo stato reale di un Job
 > specifico usa sempre `GetJob`/`ListJobs`, non i contatori aggregati.
 
+## 6. Test end-to-end: un worker con un carico di elaborazione pesante
+
+`worker_heavy_load.cr` non simula il lavoro con uno `sleep`: conta davvero i
+numeri primi per trial division fino a `HEAVY_PRIMES_UPTO` (default
+3.000.000), a blocchi (`HEAVY_CHUNKS`, default 5), chiamando `RenewLease` tra
+un blocco e l'altro. Serve a dimostrare che la Lease sopravvive a lavoro CPU
+reale e prolungato, non solo ad attese I/O.
+
+```bash
+crystal build src/worker_heavy_load.cr -o bin/worker_heavy_load
+
+# timeoutSeconds deliberatamente corto rispetto al lavoro totale: il punto
+# è proprio che RenewLease lo estende ben oltre.
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"job":{"type":"HeavyComputeJob","queue":"jqcp-demo","args":[{"task":"prime-count"}],"timeoutSeconds":60,"maxLeaseSeconds":600}}' | jq -c '.jid, .timeoutSeconds'
+# "c63d0b19-...", 60
+
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/hello \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"wid":"worker-heavy-2","queues":["jqcp-demo"],"concurrency":1}' > /dev/null
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"wid":"worker-heavy-2"}' > /dev/null
+
+export JQCP_BROKER_URL=http://localhost:7420
+export JQCP_WORKER_TOKEN=worker-secret
+export HEAVY_CHUNKS=5
+export HEAVY_PRIMES_UPTO=3000000
+
+./bin/worker_heavy_load worker-heavy-2 c63d0b19-c530-4b9e-afb7-3009d1606d8f
+```
+
+```
+Worker[worker-heavy-2]: heavy-load run on jid=c63d0b19-..., 5 chunks of trial-division primes up to 3000000
+  chunk 1/5: found 216816 primes in 2.17s (real CPU work, not sleep)
+  -> RenewLease: killed:false, Lease extended
+  chunk 2/5: found 216816 primes in 2.2s (real CPU work, not sleep)
+  -> RenewLease: killed:false, Lease extended
+  chunk 3/5: found 216816 primes in 2.17s (real CPU work, not sleep)
+  -> RenewLease: killed:false, Lease extended
+  chunk 4/5: found 216816 primes in 2.24s (real CPU work, not sleep)
+  -> RenewLease: killed:false, Lease extended
+  chunk 5/5: found 216816 primes in 2.2s (real CPU work, not sleep)
+  -> RenewLease: killed:false, Lease extended
+Worker[worker-heavy-2]: Ack -> 200 {}
+```
+
+Circa 11 secondi di CPU reale contro un `timeoutSeconds` di 60s che, senza
+`RenewLease`, sarebbe comunque bastato — il punto è che la Lease viene
+davvero estesa a ogni chiamata (`GetStats` dopo l'Ack mostra `processed`
+incrementato, e `GetJob` sullo stesso `jid` torna `job_not_found`: un Job
+`SUCCEEDED` non viene retenuto, Sezione 4.3).
+
+> **Nota su ambienti con CPU condivisa/virtualizzata**: preparando questo
+> test, un primo tentativo con `timeoutSeconds:5` è stato *davvero* reclamato
+> dal `LeaseReaper` prima che il primo `RenewLease` arrivasse a destinazione
+> — non per un bug, ma perché sotto contesa di CPU il tempo reale tra "il
+> worker finisce di calcolare" e "la richiesta HTTP arriva al Broker" può
+> essere molto più lungo del tempo di CPU misurato internamente dal worker.
+> È esattamente la ragione per cui la RFC raccomanda di chiamare
+> `RenewLease` a un intervallo *significativamente* più corto di
+> `timeoutSeconds` (Sezione 7.6: "e.g. half of it") invece di ridurre i
+> margini all'osso.
+
+## 7. Test end-to-end: un worker che non rinnova mai la Lease
+
+`worker_no_renew.cr` fa l'opposto apposta: prende in carico un Job e poi
+resta zitto per `STUCK_SILENT_SECONDS` (default 20) — nessun `RenewLease`,
+nessun `Beat`, nessun `Ack`/`Fail` — per simulare un worker davvero bloccato
+o crashato dopo aver già rivendicato il Job.
+
+```bash
+crystal build src/worker_no_renew.cr -o bin/worker_no_renew
+
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"job":{"type":"SendEmailJob","queue":"jqcp-demo","args":[{"to":"dave@example.com","subject":"reminder"}],"timeoutSeconds":5}}' | jq -c '.jid, .timeoutSeconds'
+# "ead8483c-...", 5
+
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/hello \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"wid":"worker-stuck-1","queues":["jqcp-demo"],"concurrency":1}' > /dev/null
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"wid":"worker-stuck-1"}' > /dev/null
+
+export JQCP_BROKER_URL=http://localhost:7420
+export JQCP_WORKER_TOKEN=worker-secret
+export STUCK_SILENT_SECONDS=20
+
+./bin/worker_no_renew worker-stuck-1 ead8483c-9f99-4945-884c-13212330bf4b
+```
+
+```
+Worker[worker-stuck-1]: holding Lease on jid=ead8483c-..., going silent for 20s (no RenewLease, no Beat, no Ack/Fail)
+Worker[worker-stuck-1]: done being silent, exiting without ever reporting back
+```
+
+Mentre il worker tace, il `LeaseReaper` del Broker (gira già dentro
+`bin/broker`, nessun passo extra richiesto) lo reclama da solo dopo i 5
+secondi di `timeoutSeconds`:
+
+```bash
+JID=ead8483c-9f99-4945-884c-13212330bf4b
+
+curl -s -X POST http://localhost:7420/jqcp/v1/operator/get_job \
+  -H "Authorization: Bearer read-secret" -H "Content-Type: application/json" \
+  -d "{\"jid\":\"$JID\"}" | jq '.state, .retry.count'
+```
+```
+"JOB_STATE_ENQUEUED"
+0
+```
+
+Tornato in coda da solo, e `retry.count` è rimasto a 0: un recupero per
+scadenza della Lease non conta come un fallimento (Sezione 8.9). Un secondo
+Worker può rivendicarlo e completarlo senza intoppi:
+
+```bash
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/hello \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"wid":"worker-rescue-1","queues":["jqcp-demo"],"concurrency":1}' > /dev/null
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d '{"wid":"worker-rescue-1"}' | jq -c '.jid, .state'
+# "ead8483c-...", "JOB_STATE_ACTIVE"
+
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/ack \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d "{\"wid\":\"worker-rescue-1\",\"jid\":\"$JID\"}"
+# {}
+
+# il worker "stuck" originale prova un Ack tardivo: rifiutato
+curl -s -X POST http://localhost:7420/jqcp/v1/worker/ack \
+  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
+  -d "{\"wid\":\"worker-stuck-1\",\"jid\":\"$JID\"}" | jq .
+```
+```json
+{"reason": "job_not_found", "domain": "jqcp.morganite", "metadata": {"jid": "ead8483c-..."}}
+```
+
+Nessuno ha dovuto intervenire manualmente: la sola assenza di `RenewLease`
+(indipendente da `Beat`, Sezione 7.6/7.7) è bastata al Broker per recuperare
+il Job in autonomia e renderlo di nuovo disponibile.
+
 ## Bonus: un Worker HTTP/3 con push reale (quic.cr)
 
 Tutto il tutorial finora usa il transport JSON-over-HTTP/1.1, quello
