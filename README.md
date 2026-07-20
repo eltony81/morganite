@@ -22,6 +22,17 @@ It uses **Redis** as a backend and provides a Ruby-like developer experience whi
 - Job workflows (chained jobs)
 - CLI with config file, env vars and inline execution
 
+## Quick start
+
+Make sure Redis is running, then build and start the broker:
+
+```bash
+shards build morganite
+./bin/morganite
+```
+
+The broker is now processing jobs from the `default` queue and serving the Web UI on `http://localhost:7420`.
+
 ## Installation
 
 Add this to your `shard.yml`:
@@ -53,8 +64,14 @@ class MyWorker
   end
 end
 
-# Enqueue a job
+# Enqueue a job from Crystal
 MyWorker.perform_async("hello", "world")
+
+# Or enqueue the same job over HTTP via the JQCP endpoint:
+# curl -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
+#   -H "Authorization: Bearer worker-secret" \
+#   -H "Content-Type: application/json" \
+#   -d '{"job":{"type":"MyWorker","queue":"default","args":["hello","world"]}}'
 ```
 
 ## Two worker models
