@@ -355,6 +355,42 @@ export MORGANITE_JQCP_OPERATOR_WRITE_TOKEN=...
 
 See [`docs/jqcp_tutorial.md`](docs/jqcp_tutorial.md) for a hands-on walkthrough of all four JQCP roles (Broker, Producer, Worker, Operator) against a real running Broker.
 
+### HTTP/3 Fetch (experimental)
+
+Morganite also offers an experimental HTTP/3 Server Push transport for `Fetch`, backed by [quic.cr](https://github.com/eltony81/quic.cr). It eliminates polling: jobs are pushed to the worker as soon as they are enqueued.
+
+Build the broker with the compile-time flag and enable HTTP/3 at runtime:
+
+```bash
+crystal build -Dmorganite_http3 src/broker.cr -o bin/broker_http3
+
+export MORGANITE_JQCP_HTTP3_ENABLED=true
+export MORGANITE_JQCP_HTTP3_PORT=7444
+./bin/broker_http3
+```
+
+A Crystal worker consumes the push stream with `H3::Client`:
+
+```crystal
+require "quic"
+require "json"
+
+client = H3::Client.new("127.0.0.1", 7444, QUIC::Config.new)
+client.on_push = ->(_push_id : UInt64, _headers : Hash(String, String), body : Bytes) {
+  job = JSON.parse(String.new(body))
+  puts "Pushed job: #{job["type"]} jid=#{job["jid"]}"
+  nil
+}
+
+# Open a fetch window; jobs arrive as HTTP/3 Server Push
+headers, body, trailers = client.get(
+  "/jqcp/v1/worker/fetch?wid=worker-http3-1",
+  {"authorization" => "Bearer worker-secret"}
+)
+```
+
+All other JQCP RPCs (`Hello`, `Ack`, `Fail`, `RenewLease`, `Beat`) remain plain JSON-over-HTTP/1.1. See `examples/jqcp_demo/src/worker_http3.cr` and the bonus section of [`docs/jqcp_tutorial.md`](docs/jqcp_tutorial.md) for a complete, runnable example.
+
 ## Docker
 
 A multistage `Dockerfile` is provided in the repository root.
