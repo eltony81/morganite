@@ -94,7 +94,7 @@ Il job viene inserito in `morganite:queue:default` e processato dal primo worker
 ```crystal
 class CriticalWorker
   include Morganite::Worker
-  sidekiq_options queue: "critical"
+  morganite_options queue: "critical"
 
   def perform(args)
   end
@@ -224,7 +224,7 @@ Per personalizzare numero di retry, backoff o comportamento sulla dead queue:
 ```crystal
 class FlakyWorker
   include Morganite::Worker
-  sidekiq_options retry: 5, dead: false # 5 retry, poi scarta invece di finire in dead
+  morganite_options retry: 5, dead: false # 5 retry, poi scarta invece di finire in dead
 
   def perform(args)
   end

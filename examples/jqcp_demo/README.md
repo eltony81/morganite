@@ -6,7 +6,8 @@ repeated here. Operator is played by plain `curl`, not code.
 
 | File | Role |
 |------|------|
-| `src/broker.cr` | Broker — a registered worker class plus `Morganite::CLI.run`. |
+| `src/broker.cr` | Broker entrypoint — requires workers then runs `Morganite::CLI.run`. |
+| `src/workers/jqcp_demo_worker.cr` | Native Morganite worker registered for the broker's own fetch loop. |
 | `src/producer.cr` | Producer — submits Jobs over JSON-HTTP. No `morganite` dependency. |
 | `src/worker.cr` | Worker — Hello/Fetch/Ack/Fail/RenewLease/Beat loop. No `morganite` dependency. |
 | `src/worker_http3.cr` | Bonus: Worker using the experimental HTTP/3 push Fetch (`quic.cr` directly). |

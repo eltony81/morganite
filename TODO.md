@@ -77,7 +77,7 @@ Obiettivo: un processo Morganite che preleva job da Redis e li esegue in modo co
 
 - [x] Modulo `Morganite::Worker` con macro per definire `perform(args)`
 - [x] Registry runtime dei worker (Hash nome -> factory proc)
-- [x] Supporto per `sidekiq_options` equivalenti (`queue`, `retry`, `backtrace`, `dead`)
+- [x] Supporto per `morganite_options` equivalenti (`queue`, `retry`, `backtrace`, `dead`)
 
 ### M1.5 Test
 

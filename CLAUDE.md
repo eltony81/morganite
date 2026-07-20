@@ -50,7 +50,7 @@ Shutdown is cooperative: `Launcher#stop` closes a shutdown channel; `fetch_loop`
 
 ### Worker definition and dispatch
 
-`include Morganite::Worker` (`src/morganite/worker.cr`) self-registers the class in `WorkerRegistry` (name → factory proc) at compile time via the `included` macro — this is why worker classes **must be required before `Morganite.start` is called** in a consuming app's binary. Class-level DSL: `sidekiq_options`, `unique`, `rate_limit`, `cron`, `server_middleware`. `perform_async`/`perform_at`/`perform_in` all funnel through `Morganite::Client`.
+`include Morganite::Worker` (`src/morganite/worker.cr`) self-registers the class in `WorkerRegistry` (name → factory proc) at compile time via the `included` macro — this is why worker classes **must be required before `Morganite.start` is called** in a consuming app's binary. Class-level DSL: `morganite_options`, `unique`, `rate_limit`, `cron`, `server_middleware`. `perform_async`/`perform_at`/`perform_in` all funnel through `Morganite::Client`.
 
 `Processor#process` (`src/morganite/processor.cr`) is the per-job execution path: acquire `while_executing` unique lock → check rate limit (reschedule if exceeded) → run through server middleware chain → `worker.perform(args)` → on success, release `until_executed` lock / notify batch / notify workflow; on failure, hand off to `Failures.handle`, which increments retry_count and either re-schedules (`morganite:retry` ZSET, exponential backoff via `Retry.backoff_for`) or moves the job to `morganite:dead`.
 

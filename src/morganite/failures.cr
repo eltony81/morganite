@@ -27,7 +27,7 @@ module Morganite
     # external Worker via JSON (errtype/message/backtrace), not raised as a
     # Crystal Exception — same retry/dead-lettering logic as `handle`
     # otherwise, including the job's own backtrace-capture policy
-    # (Section 4.2's `backtrace` sidekiq_options field still applies to a
+    # (Section 4.2's `backtrace` morganite_options field still applies to a
     # reported backtrace exactly as it would to a raised one).
     def self.handle_external(job : Job, errtype : String?, message : String?, backtrace : Array(String)?, redis : Redis::Client? = nil)
       record_failure(job, message, errtype, backtrace)

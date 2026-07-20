@@ -113,7 +113,7 @@ module Morganite
       end
     end
 
-    macro sidekiq_options(**options)
+    macro morganite_options(**options)
       {% if options[:queue] %}
         def self.default_queue : String
           {{options[:queue]}}

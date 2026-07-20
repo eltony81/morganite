@@ -57,6 +57,112 @@ end
 MyWorker.perform_async("hello", "world")
 ```
 
+## Two worker models
+
+Morganite supports two ways to execute jobs. Choose the one that fits your architecture.
+
+### 1. Native Morganite workers
+
+The worker class is compiled into the broker process and executed by Morganite's own fiber-based fetch loop. This is the Sidekiq-like model and the simplest way to get started.
+
+```crystal
+require "morganite"
+
+class SendEmailWorker
+  include Morganite::Worker
+
+  def perform(args)
+    to = args[0]["to"].as_s
+    puts "Sending email to #{to}"
+  end
+end
+
+# Enqueue from anywhere with Redis access
+SendEmailWorker.perform_async({to: "user@example.com"}.to_json)
+```
+
+Start the broker:
+
+```bash
+crystal build src/broker.cr -o bin/broker
+./bin/broker
+```
+
+The broker fetches jobs from Redis and calls `perform` inside its own process.
+
+### 2. External JQCP workers
+
+The broker only manages queues over Redis and exposes a JSON-over-HTTP API. Workers are separate processes — even written in other languages — that register with the broker and pull jobs via HTTP.
+
+Producer enqueues a job via HTTP:
+
+```crystal
+require "http/client"
+
+resp = HTTP::Client.post(
+  "http://localhost:7420/jqcp/v1/worker/enqueue",
+  headers: HTTP::Headers{
+    "Authorization" => "Bearer worker-secret",
+    "Content-Type"  => "application/json",
+  },
+  body: %({
+    "job": {
+      "type": "SendEmailJob",
+      "queue": "jqcp-demo",
+      "args": [{"to":"user@example.com"}]
+    }
+  })
+)
+```
+
+External worker registers and fetches:
+
+```crystal
+require "http/client"
+require "json"
+
+BROKER_URL   = "http://localhost:7420"
+WORKER_TOKEN = "worker-secret"
+WID          = "worker-1"
+
+# Register with the broker
+HTTP::Client.post(
+  "#{BROKER_URL}/jqcp/v1/worker/hello",
+  headers: HTTP::Headers{"Authorization" => "Bearer #{WORKER_TOKEN}", "Content-Type" => "application/json"},
+  body: %({"wid":"#{WID}","queues":["jqcp-demo"],"concurrency":1})
+)
+
+# Pull a job
+resp = HTTP::Client.post(
+  "#{BROKER_URL}/jqcp/v1/worker/fetch",
+  headers: HTTP::Headers{"Authorization" => "Bearer #{WORKER_TOKEN}", "Content-Type" => "application/json"},
+  body: %({"wid":"#{WID}"})
+)
+
+job = JSON.parse(resp.body)
+puts "Processing #{job["type"]}"
+
+# Confirm completion
+HTTP::Client.post(
+  "#{BROKER_URL}/jqcp/v1/worker/ack",
+  headers: HTTP::Headers{"Authorization" => "Bearer #{WORKER_TOKEN}", "Content-Type" => "application/json"},
+  body: %({"wid":"#{WID}","jid":"#{job["jid"]}"})
+)
+```
+
+### Choosing between the two
+
+| | Native `Morganite::Worker` | External JQCP worker |
+|---|---|---|
+| Process location | Inside the broker | Separate process |
+| Language | Crystal only | Any language |
+| Deployment | Single compiled binary | Broker + worker services |
+| Network location | Same machine as broker | Can be on different machines |
+| Complexity | Low | Higher (HTTP API) |
+| Best for | Simple, self-contained apps | Polyglot systems, remote workers, large scale |
+
+See [`docs/jqcp_tutorial.md`](docs/jqcp_tutorial.md) for a complete JQCP walkthrough.
+
 ## Scheduled and cron jobs
 
 ```crystal
