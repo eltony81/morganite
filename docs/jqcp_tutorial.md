@@ -6,45 +6,34 @@ girare tutti e quattro, dal vivo, contro un Broker Morganite reale:
 
 | Ruolo | Cosa fa | Come lo interpretiamo qui |
 |-------|---------|----------------------------|
-| **Broker** | Il processo che accetta le RPC ed è l'autorità sullo stato dei Job/Queue. | Un piccolo binario Crystal: `examples/jqcp_demo/src/broker.cr`. |
-| **Producer** | Crea e sottomette Job (RPC `Enqueue`). | `curl` verso `/jqcp/v1/worker/enqueue`. |
-| **Worker** | Rivendica Job (`Fetch`), li esegue, riporta l'esito (`Ack`/`Fail`), rinnova la Lease (`RenewLease`). | `curl` verso `/jqcp/v1/worker/*`. |
+| **Broker** | Il processo che accetta le RPC ed è l'autorità sullo stato dei Job/Queue. | Un binario Crystal reale: `examples/jqcp_demo/src/broker.cr`. |
+| **Producer** | Crea e sottomette Job (RPC `Enqueue`). | Un binario Crystal reale: `examples/jqcp_demo/src/producer.cr`. |
+| **Worker** | Rivendica Job (`Fetch`), li esegue, riporta l'esito (`Ack`/`Fail`), rinnova la Lease (`RenewLease`). | Un binario Crystal reale: `examples/jqcp_demo/src/worker.cr`. |
 | **Operator** | Ispeziona e amministra Broker/Queue/Job (`GetJob`, `KillJob`, `GetStats`, ...). | `curl` verso `/jqcp/v1/operator/*`. |
 
 Nella RFC, Producer e Worker condividono la stessa API (`JobWorker`, Sezione
 7) — sono due modi diversi di usarla, non due servizi separati. Operator ha
-invece una API dedicata (`JobOperator`, Sezione 9). Qui li teniamo separati
-solo per chiarezza didattica: nella realtà possono essere lo stesso processo,
-processi diversi, o perfino linguaggi diversi (Python, Node.js, ...) — è
-proprio questo il punto di un protocollo di controllo esposto su HTTP.
+invece una API dedicata (`JobOperator`, Sezione 9); qui resta `curl` perché
+è esattamente così che la useresti in pratica — comandi occasionali di
+ispezione/amministrazione, non un processo che gira in permanenza.
+
+`producer.cr` e `worker.cr` **non** dipendono dallo shard `morganite`: usano
+solo `http/client`+`json` della stdlib di Crystal e parlano al Broker via
+JSON-over-HTTP puro. È voluto — un Producer o un Worker JQCP può essere
+scritto in un linguaggio completamente diverso (Python, Node.js, ...) e
+funzionare identicamente, perché tutto quello che serve è chiamare degli
+endpoint HTTP con JSON. Il Worker "nativo" di Morganite (`include
+Morganite::Worker`, quello di `docs/usage.md`) è un sistema **separato**,
+interno al processo Broker: le due cose coesistono ma non si parlano.
 
 ## Prerequisiti
 
 - Redis in esecuzione (`redis://localhost:6379`).
 - `curl` e [`jq`](https://jqlang.org/) (solo per formattare l'output, non
   richiesto dal protocollo).
-- Il repository di Morganite clonato, con `shards install` già eseguito.
+- Il repository di Morganite clonato.
 
-## 1. Avviare il Broker
-
-`examples/jqcp_demo/src/broker.cr` è l'app più piccola possibile: registra
-una classe worker (serve solo perché Morganite tiene comunque attivo il
-proprio loop nativo sulla coda `--queue`, indipendente da JQCP — vedi la nota
-sulle code più sotto) e poi chiama `Morganite::CLI.run`:
-
-```crystal
-require "morganite"
-require "morganite/cli"
-
-class JqcpDemoWorker
-  include Morganite::Worker
-
-  def perform(args)
-  end
-end
-
-Morganite::CLI.run
-```
+## 1. Build e deploy del Broker
 
 ```bash
 cd examples/jqcp_demo
@@ -73,225 +62,248 @@ scope Bearer-token distinti (`jqcp:worker`, `jqcp:operator:read`,
 **Nota sulle code**: il Broker gira anche il proprio worker loop nativo
 (quello di `Morganite.start`), che consuma dalla coda `MORGANITE_QUEUE`
 (`default` qui). Per evitare che rubi i Job a questo tutorial prima che il
-Worker JQCP li veda, il Producer qui sotto li mette esplicitamente su una
+Worker JQCP li veda, Producer e Worker qui sotto usano esplicitamente una
 coda diversa, `jqcp-demo`, che il loop nativo non tocca — sono due
 consumatori indipendenti della stessa astrazione "coda Redis".
 
-## 2. Producer: sottomettere un Job
+## 2. Build e deploy del Producer
+
+`producer.cr` sottomette un piccolo lotto di Job realistici: alcuni
+`SendEmailJob` (task breve) e un `GenerateReportJob` (task lungo, con
+`timeoutSeconds`/`maxLeaseSeconds` impostati per il passo 5).
 
 ```bash
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
-  -H "Authorization: Bearer worker-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"job":{"type":"JqcpDemoWorker","queue":"jqcp-demo","args":[{"to":"alice@example.com"}]}}' | jq .
+crystal build src/producer.cr -o bin/producer
+
+export JQCP_BROKER_URL=http://localhost:7420
+export JQCP_WORKER_TOKEN=worker-secret
+export JQCP_QUEUE=jqcp-demo
+
+./bin/producer 4   # invia 4 SendEmailJob + 1 GenerateReportJob
 ```
 
-```json
-{
-  "jid": "2e57ece8-cc65-4f12-a520-96fe91b682e5",
-  "type": "JqcpDemoWorker",
-  "queue": "jqcp-demo",
-  "args": [{"to": "alice@example.com"}],
-  "createdAt": "2026-07-19T19:52:16Z",
-  "enqueuedAt": "2026-07-19T19:52:16Z",
-  "scheduledAt": null,
-  "priority": 0,
-  "retry": {"max": 25, "count": 0, "backoff": "BACKOFF_MODE_EXPONENTIAL"},
-  "timeoutSeconds": 0,
-  "maxLeaseSeconds": 0,
-  "state": "JOB_STATE_ENQUEUED",
-  "lastError": null
-}
+```
+Producer: submitting 4 SendEmailJob to queue 'jqcp-demo' on http://localhost:7420
+  enqueued jid=2c1be5eb-678d-408d-b858-b4a26df04e16 to=alice@example.com
+  enqueued jid=d2c620d0-2f91-46b6-9a27-16e293c73e60 to=carol@example.com
+  enqueued jid=5c768ec4-62b6-42ee-9c71-32945828809c to=alice@example.com
+  enqueued jid=9785fb26-1a44-4bb5-a90f-c0aef1dbf668 to=carol@example.com
+Producer: submitting 1 GenerateReportJob (long-running: timeoutSeconds=30, maxLeaseSeconds=3600)
+  enqueued jid=638af33f-13ba-497a-8782-f42b07486406
+Producer: done.
 ```
 
-Il Broker assegna un `jid`; salvalo, serve ai passi successivi.
+## 3. Build e deploy del Worker
 
-## 3. Worker: Hello, Fetch, Ack
-
-Un Worker deve prima identificarsi (`Hello`) — questo crea una *Worker
-Session*, distinta dallo stato di ogni singolo Job:
+`worker.cr` fa `Hello`, poi entra in un loop: `Fetch` (bloccante e
+non-streaming, vedi ["Fetch (non-streaming fallback)"](jqcp_conformance.md#fetch-non-streaming-fallback)),
+esegue il Job in base al `type`, riporta `Ack`/`Fail`, e chiama `Beat` ogni
+15s per mantenere viva la propria Worker Session. `SendEmailJob` viene
+simulato con un piccolo sleep e un 20% di probabilità di `Fail` (per vedere
+il retry automatico); `GenerateReportJob` chiama `RenewLease` ogni 10
+secondi finché non finisce.
 
 ```bash
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/hello \
-  -H "Authorization: Bearer worker-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"wid":"w-tutorial-1","queues":["jqcp-demo"],"concurrency":5}' | jq .
+crystal build src/worker.cr -o bin/worker
+
+export JQCP_BROKER_URL=http://localhost:7420
+export JQCP_WORKER_TOKEN=worker-secret
+export JQCP_QUEUE=jqcp-demo
+export JQCP_WORKER_MAX_JOBS=5   # solo per questo giro dimostrativo: esce dopo 5 job invece di girare per sempre
+
+./bin/worker w-tutorial-A
 ```
 
-```json
-{
-  "priorityStrategy": {"mode": "STRICT", "weights": {}},
-  "recommendedBeatIntervalSeconds": 15
-}
+```
+Worker[w-tutorial-A]: Hello (queues=[jqcp-demo])
+Worker[w-tutorial-A]: fetched SendEmailJob jid=2c1be5eb-678d-408d-b858-b4a26df04e16
+  -> sent to alice@example.com, Ack
+Worker[w-tutorial-A]: fetched SendEmailJob jid=d2c620d0-2f91-46b6-9a27-16e293c73e60
+  -> sent to carol@example.com, Ack
+Worker[w-tutorial-A]: fetched SendEmailJob jid=5c768ec4-62b6-42ee-9c71-32945828809c
+  -> sent to alice@example.com, Ack
+Worker[w-tutorial-A]: fetched SendEmailJob jid=9785fb26-1a44-4bb5-a90f-c0aef1dbf668
+  -> simulated SMTP timeout sending to carol@example.com, reporting Fail
+Worker[w-tutorial-A]: fetched GenerateReportJob jid=638af33f-13ba-497a-8782-f42b07486406
+  -> generating report (long job), RenewLease every 10s
+  -> lease renewed
+  -> lease renewed
+  -> lease renewed
+  -> report done, Ack
+Worker[w-tutorial-A]: processed 5 job(s), exiting
 ```
 
-Poi rivendica il Job con `Fetch` (qui una singola chiamata bloccante fino a
-`jqcp_fetch_timeout_seconds`, non lo streaming reale della RFC — vedi
-["Fetch (non-streaming fallback)"](jqcp_conformance.md#fetch-non-streaming-fallback)):
+In un deployment reale ometti `JQCP_WORKER_MAX_JOBS` e lascia girare il
+processo (fermalo con Ctrl-C); puoi lanciare più istanze con `wid` diversi
+per parallelizzare — sono sessioni indipendenti sullo stesso Broker.
 
-```bash
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
-  -H "Authorization: Bearer worker-secret" \
-  -H "Content-Type: application/json" \
-  -d '{"wid":"w-tutorial-1"}' | jq .
-```
+> **Attenzione alla Worker Session**: `Hello`/`Beat` hanno una TTL di 45
+> secondi (`WorkerSession::HEARTBEAT_TTL_SECONDS`). Se tra un passo e
+> l'altro di questo tutorial (o tra la fine del Worker e la tua prossima
+> chiamata da Operator) passano più di 45s senza un `Hello`/`Beat`, la
+> sessione scade per davvero — è successo mentre preparavo questo tutorial:
+> `ListWorkers` sotto è risultato vuoto perché erano passati più di 45s.
+> Non è un errore: la Lease dei singoli Job non è in discussione (il Job
+> fallito è comunque tornato automaticamente in coda, vedi sotto), solo la
+> sessione del Worker che l'aveva presa in carico.
 
-La risposta è lo stesso Job, ora `"state": "JOB_STATE_ACTIVE"`. Il Worker lo
-"esegue" (qui non fa nulla per davvero) e conferma il successo con `Ack`:
-
-```bash
-JID=2e57ece8-cc65-4f12-a520-96fe91b682e5
-
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/ack \
-  -H "Authorization: Bearer worker-secret" \
-  -H "Content-Type: application/json" \
-  -d "{\"wid\":\"w-tutorial-1\",\"jid\":\"$JID\"}"
-# {}
-```
-
-> **Attenzione alla Worker Session**: `Hello` (e `Beat`) hanno una TTL di 45
-> secondi (`WorkerSession::HEARTBEAT_TTL_SECONDS`). Se segui questi comandi a
-> mano con pause lunghe tra un passo e l'altro, una `Fetch`/`Ack` successiva
-> può rispondere `{"reason":"unauthorized"}` semplicemente perché la sessione
-> è scaduta — è successo per davvero preparando questo tutorial. Rimedio:
-> richiama `Hello` (o `Beat`) per rinfrescarla, non è un errore del Broker.
-
-## 4. Worker: un fallimento e il retry automatico
-
-```bash
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d '{"job":{"type":"JqcpDemoWorker","queue":"jqcp-demo","args":[{"to":"bob@example.com"}],"retry":{"max":3}}}' | jq -c .
-# {"jid":"f08d7f89-...","state":"JOB_STATE_ENQUEUED",...}
-
-JID_B=f08d7f89-af0d-4817-94ed-095f9b998929
-
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d '{"wid":"w-tutorial-1"}' > /dev/null
-
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/fail \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d "{\"wid\":\"w-tutorial-1\",\"jid\":\"$JID_B\",\"errtype\":\"SMTP::TimeoutError\",\"message\":\"connection timed out\"}"
-# {}
-```
-
-Un `GetJob` da parte dell'Operator (sotto) conferma che il Job è ora
-`JOB_STATE_RETRYING`, con `retry.count` incrementato e `lastError` popolato —
-il Broker lo rimetterà automaticamente in coda dopo il backoff, senza che
-nessuno debba fare nulla.
-
-## 5. Worker: un Job di lunga durata con RenewLease
-
-`RenewLease` (Sezione 7.6/8.4, nuova in `draft-difluri-jqcp-02`) estende la
-Lease di un singolo Job senza rilasciarlo — utile per lavori che durano più
-di `timeoutSeconds`. È indipendente da `Beat` (che riguarda solo la
-sessione): vedi la sezione ["RenewLease"](jqcp_conformance.md#renewlease) del
-reference per la tabella completa degli stati.
-
-```bash
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d '{"job":{"type":"JqcpDemoWorker","queue":"jqcp-demo","args":[{"report":"annual"}],"timeoutSeconds":30,"maxLeaseSeconds":3600}}' | jq -c .
-
-JID_C=08eecf2d-30fd-446b-9699-57a6b69354a9
-
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d '{"wid":"w-tutorial-1"}' > /dev/null
-
-# ... il worker sta ancora lavorando, ben prima dei 30s di timeoutSeconds ...
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/renew_lease \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d "{\"wid\":\"w-tutorial-1\",\"jid\":\"$JID_C\"}" | jq .
-# {"killed": false}   <- la Lease è stata estesa, il Job resta ACTIVE
-
-curl -s -X POST http://localhost:7420/jqcp/v1/worker/ack \
-  -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d "{\"wid\":\"w-tutorial-1\",\"jid\":\"$JID_C\"}"
-# {}
-```
-
-Se il Job (o il cap `maxLeaseSeconds`) fosse stato nel frattempo terminato da
-un Operator, la stessa chiamata avrebbe risposto `{"killed": true}` invece di
-un errore — il Worker lo scopre entro un intervallo di rinnovo, non solo al
-successivo `Ack`/`Fail` fallito.
-
-## 6. Operator: ispezionare il Broker
+## 4. Operator: ispezionare il Broker
 
 ```bash
 curl -s http://localhost:7420/jqcp/v1/operator/get_stats \
   -H "Authorization: Bearer read-secret" | jq .
 ```
 ```json
-{"processed": 2, "failed": 0, "dead": 0}
+{"processed": 4, "failed": 0, "dead": 0}
 ```
 
-```bash
-curl -s http://localhost:7420/jqcp/v1/operator/list_workers \
-  -H "Authorization: Bearer read-secret" | jq .
-```
-```json
-{
-  "workers": [
-    {
-      "wid": "w-tutorial-1",
-      "queues": ["jqcp-demo"],
-      "concurrency": 5,
-      "sessionState": "IDENTIFIED",
-      "lastBeat": "2026-07-19T19:52:20Z",
-      "leasedJids": []
-    }
-  ]
-}
-```
+`processed` conta i 3 `SendEmailJob` andati a buon fine più il
+`GenerateReportJob` — il quarto `SendEmailJob` (quello fallito) non è ancora
+`processed`: è tornato automaticamente in `JOB_STATE_ENQUEUED` dopo il
+backoff, pronto per un nuovo `Fetch`.
 
 ```bash
 curl -s -X POST http://localhost:7420/jqcp/v1/operator/get_job \
   -H "Authorization: Bearer read-secret" -H "Content-Type: application/json" \
-  -d "{\"jid\":\"$JID_B\"}" | jq '.state, .retry'
+  -d '{"jid":"9785fb26-1a44-4bb5-a90f-c0aef1dbf668"}' | jq '.state, .retry, .lastError'
 ```
 ```
-"JOB_STATE_RETRYING"
+"JOB_STATE_ENQUEUED"
 {"max": 3, "count": 1, "backoff": "BACKOFF_MODE_EXPONENTIAL"}
+{"errtype": "SMTP::TimeoutError", "message": "connection timed out", "backtrace": [], "failedAt": "2026-07-20T16:26:53Z"}
 ```
 
-`ListQueues` (`GET /jqcp/v1/operator/list_queues`) elenca solo le code
-correntemente non vuote — Morganite non pre-dichiara le code, esistono solo
-finché contengono Job.
+Nessuno ha dovuto rilanciarlo a mano: il Broker lo ha rimesso in coda da
+solo dopo il backoff. `ListQueues` (`GET /jqcp/v1/operator/list_queues`)
+elenca solo le code correntemente non vuote — Morganite non pre-dichiara le
+code, esistono solo finché contengono Job.
 
-## 7. Operator: terminare un Job (poison pill)
+## 5. Operator: terminare un Job (poison pill)
 
 ```bash
 curl -s -X POST http://localhost:7420/jqcp/v1/worker/enqueue \
   -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d '{"job":{"type":"JqcpDemoWorker","queue":"jqcp-demo","args":[{"corrupt":true}]}}' | jq -c .
+  -d '{"job":{"type":"SendEmailJob","queue":"jqcp-demo","args":[{"to":"broken@example.com","subject":"corrupt"}]}}' | jq -c .
+# {"jid":"d114218f-...","state":"JOB_STATE_ENQUEUED",...}
 
-JID_D=6525dcee-a407-45a1-b697-2f4e90fc873a
+JID_D=d114218f-d065-4d38-87be-ff759c2380c0
 
 curl -s -X POST http://localhost:7420/jqcp/v1/worker/fetch \
   -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d '{"wid":"w-tutorial-1"}' > /dev/null
+  -d '{"wid":"w-tutorial-A"}' > /dev/null
 
 curl -s -X POST http://localhost:7420/jqcp/v1/operator/kill_job \
   -H "Authorization: Bearer write-secret" -H "Content-Type: application/json" \
   -d "{\"jid\":\"$JID_D\"}" | jq '.state'
-# "JOB_STATE_DEAD"   <- immediato, non aspetta che il worker faccia Fail
+# "JOB_STATE_DEAD"   <- immediato, non aspetta un Fail dal Worker
 
 curl -s -X POST http://localhost:7420/jqcp/v1/worker/ack \
   -H "Authorization: Bearer worker-secret" -H "Content-Type: application/json" \
-  -d "{\"wid\":\"w-tutorial-1\",\"jid\":\"$JID_D\"}" | jq .
+  -d "{\"wid\":\"w-tutorial-A\",\"jid\":\"$JID_D\"}" | jq .
 ```
 ```json
-{"reason": "job_not_found", "domain": "jqcp.morganite", "metadata": {"jid": "6525dcee-..."}}
+{"reason": "job_not_found", "domain": "jqcp.morganite", "metadata": {"jid": "d114218f-..."}}
 ```
 
-L'`Ack` tardivo del Worker viene rifiutato: la Lease non esiste più, la Sua
+L'`Ack` tardivo del Worker viene rifiutato: la Lease non esiste più, la
 verità sullo stato del Job appartiene solo al Broker.
 
-> `GetStats`' `dead` conta solo le morti per esaurimento retry
-> (`Fail` ripetuti), non i `KillJob` dell'Operator — per lo stato reale di un
-> Job specifico usa sempre `GetJob`/`ListJobs`, non i contatori aggregati.
+> `GetStats`' `dead` conta solo le morti per esaurimento retry (`Fail`
+> ripetuti), non i `KillJob` dell'Operator — per lo stato reale di un Job
+> specifico usa sempre `GetJob`/`ListJobs`, non i contatori aggregati.
+
+## Bonus: un Worker HTTP/3 con push reale (quic.cr)
+
+Tutto il tutorial finora usa il transport JSON-over-HTTP/1.1, quello
+predefinito. Morganite offre anche un transport **sperimentale** per il
+solo `Fetch`, che usa [quic.cr](https://github.com/eltony81/quic.cr) per
+fare vero HTTP/3 Server Push (RFC 9114 §4.6) invece del polling — vedi
+["HTTP/3 Fetch (experimental)"](jqcp_conformance.md#http3-fetch-experimental)
+per il design completo. Qui lo mettiamo davvero in funzione.
+
+**Chi ha bisogno del flag di compilazione, e chi no** — è una distinzione
+importante, non simmetrica:
+
+- **Il Broker** sì: `quic.cr` è `require`-ato da Morganite solo dietro
+  `-Dmorganite_http3` (senza questo flag il binario non ha nemmeno il
+  codice dell'HTTP/3 listener, indipendentemente dalle env var).
+- **Il Worker HTTP/3** no: `worker_http3.cr` non `require`a mai
+  `"morganite"` — usa `quic.cr` direttamente, si compila con un `crystal
+  build` normale. Gli serve comunque OpenSSL >= 3.5 sulla macchina di
+  build (la stessa dipendenza nativa di `quic.cr`, indipendente da qualsiasi
+  flag di Morganite — vedi `docs/jqcp_conformance.md`).
+
+```bash
+# Broker, con l'HTTP/3 Fetch compilato E abilitato a runtime
+crystal build -Dmorganite_http3 src/broker.cr -o bin/broker_http3
+
+export MORGANITE_JQCP_HTTP3_ENABLED=true
+export MORGANITE_JQCP_HTTP3_PORT=7444
+export MORGANITE_JQCP_HTTP3_FETCH_WINDOW_SECONDS=3
+# (più le stesse env var JQCP del passo 1)
+./bin/broker_http3
+```
+
+```
+jqcp: experimental HTTP/3 Fetch listening on udp/7444
+🚀 HTTP/3 Server listening on udp://0.0.0.0:7444
+```
+
+```bash
+# Worker HTTP/3 -- nessun flag, build normale
+crystal build src/worker_http3.cr -o bin/worker_http3
+
+export JQCP_HTTP3_HOST=127.0.0.1
+export JQCP_HTTP3_PORT=7444
+export JQCP_WORKER_HTTP3_WINDOWS=4   # quante finestre di push apre prima di uscire
+
+./bin/worker_http3 w-push-1
+```
+
+```
+Worker[w-push-1]: Hello (queues=[jqcp-demo]) over JSON-HTTP
+Worker[w-push-1]: opening 4 HTTP/3 Fetch window(s) on udp/7444
+```
+
+Ora, mentre il Worker HTTP/3 ha una finestra aperta, il Producer (invariato,
+stesso binario del passo 2) invia dei Job via JSON-HTTP:
+
+```bash
+./bin/producer 3
+```
+
+Sul terminale del Worker HTTP/3, i Job arrivano push-ati in tempo reale,
+mentre la finestra è ancora aperta — non al prossimo poll:
+
+```
+Worker[w-push-1]: window 1/4 ended ({"windowEnded":true})
+Worker[w-push-1]: window 2/4 ended ({"windowEnded":true})
+  [push] SendEmailJob jid=3b2cf233-a7a7-4ee0-a18c-0e9dc87d46bf
+  [push] SendEmailJob jid=3c2dbfde-a6aa-4161-a471-6b754c8a3380
+  [push] SendEmailJob jid=e748c8e0-0bc2-410b-8c8f-a3406dd44909
+  [push] GenerateReportJob jid=214cfc18-f2b1-4cc7-b4d2-545ee9c7f66e
+  -> unknown job type GenerateReportJob, failing it
+  -> sent to carol@example.com, Ack
+  -> sent to alice@example.com, Ack
+  -> sent to carol@example.com, Ack
+Worker[w-push-1]: window 3/4 ended ({"windowEnded":true})
+Worker[w-push-1]: window 4/4 ended ({"windowEnded":true})
+Worker[w-push-1]: exiting
+```
+
+(`worker_http3.cr` gestisce solo `SendEmailJob`, per restare focalizzato sul
+meccanismo di push — non è un limite del transport: il `GenerateReportJob`
+viene correttamente fallito e tornerà in coda per il retry, esattamente come
+qualsiasi tipo non riconosciuto.) `Ack`/`Fail`/`Hello` restano JSON-HTTP
+puro, invariati — solo `Fetch` è passato a HTTP/3.
+
+**Perché resta sperimentale, non il default**: solo un client basato su
+quic.cr può consumarlo (nessuna storia di interoperabilità con un client
+gRPC/JQCP reale oggi), il certificato TLS è self-signed e auto-generato, e
+al momento della scrittura non esiste una validazione incrociata
+indipendente per il Server Push (quic-go v0.60.0, usato per verificare la
+conformità di base di quic.cr, non ha alcuna API di Server Push). Dettagli
+completi in `docs/jqcp_conformance.md`.
 
 ## Riepilogo
 
