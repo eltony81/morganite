@@ -24,7 +24,7 @@ It uses **Redis** as a backend and provides a Ruby-like developer experience whi
 
 ## Quick start
 
-Make sure Redis is running, then build and start the broker:
+Make sure Redis is running, then build and start the broker using the built-in CLI binary:
 
 ```bash
 shards build morganite
@@ -32,6 +32,42 @@ shards build morganite
 ```
 
 The broker is now processing jobs from the `default` queue and serving the Web UI on `http://localhost:7420`.
+
+Alternatively, implement the broker in your own entrypoint file. This is useful when you want to wire configuration directly in code or bundle your own workers:
+
+```crystal
+# src/broker.cr
+require "morganite"
+require "./workers/my_worker"
+
+Morganite.config = Morganite::Configuration.new(
+  redis_url: "redis://localhost:6379/0",
+  queue: "default",
+  concurrency: 10,
+  web_port: 7420,
+  log_level: "info",
+)
+
+Morganite.start
+Morganite.wait
+```
+
+Build and run it:
+
+```bash
+crystal build src/broker.cr -o bin/broker
+./bin/broker
+```
+
+If you still want CLI flag support, replace `Morganite.start` / `Morganite.wait` with `require "morganite/cli"` and `Morganite::CLI.run`:
+
+```crystal
+require "morganite"
+require "morganite/cli"
+require "./workers/my_worker"
+
+Morganite::CLI.run
+```
 
 ## Installation
 
